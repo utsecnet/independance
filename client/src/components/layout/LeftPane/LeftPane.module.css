@@ -1,0 +1,75 @@
+.pane {
+  width: 280px;
+  flex-shrink: 0;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  padding: 14px;
+  overflow-y: auto;
+}
+
+.heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+  margin: 0 0 12px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.row:hover {
+  border-color: var(--accent-cyan-dim);
+}
+
+.rowActive {
+  border-color: var(--accent-cyan);
+  background: var(--accent-cyan-dim);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.dot-task {
+  background: var(--accent-cyan);
+}
+
+.dot-project {
+  background: var(--accent-magenta);
+}
+
+.dot-poam {
+  background: var(--accent-purple);
+}
+
+.rowTitle {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  color: var(--text-dim);
+  font-size: 12.5px;
+}

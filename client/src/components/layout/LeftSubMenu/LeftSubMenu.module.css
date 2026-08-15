@@ -1,0 +1,39 @@
+.menu {
+  width: 168px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 12px 8px;
+  overflow-y: auto;
+}
+
+.heading {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  padding: 4px 8px 8px;
+}
+
+.item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 13px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--surface-raised);
+  color: var(--text-h);
+}
+
+.itemActive {
+  background: var(--accent-cyan-dim);
+  color: var(--text-h);
+}
