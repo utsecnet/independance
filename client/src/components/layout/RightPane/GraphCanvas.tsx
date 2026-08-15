@@ -117,7 +117,7 @@ export function GraphCanvas() {
         fitView
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--border)" />
-        <Controls />
+        <Controls showInteractive={false} />
         <MiniMap
           pannable
           zoomable

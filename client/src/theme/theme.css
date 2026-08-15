@@ -90,7 +90,13 @@ body {
    styling; override their global class names here so they follow our
    theme instead. (MiniMap's node/mask/background colors are themed via
    props in GraphCanvas.tsx, not here, since those render as SVG fill
-   attributes rather than CSS.) */
+   attributes rather than CSS.) !important throughout because
+   @xyflow/react's own stylesheet (imported inside GraphCanvas.tsx)
+   bundles after this file and carries the same specificity, so it would
+   otherwise win the cascade regardless of source order in the file tree
+   — confirmed via computed styles: the button's icon color already
+   matched (inherited from body { color }), but its background was
+   stuck at React Flow's default #fefefe. */
 .react-flow__controls {
   box-shadow: var(--shadow-md);
   border-radius: 8px;
@@ -98,18 +104,19 @@ body {
 }
 
 .react-flow__controls-button {
-  background: var(--surface-raised);
-  border-bottom: 1px solid var(--border);
-  fill: var(--text);
-  stroke: var(--text);
+  background: var(--surface-raised) !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  fill: var(--text) !important;
+  stroke: var(--text) !important;
 }
 
 .react-flow__controls-button:hover {
-  background: var(--surface);
+  background: var(--surface) !important;
 }
 
 .react-flow__controls-button:last-child {
-  border-bottom: none;
+  border-bottom: none !important;
 }
 
 .react-flow__minimap {
