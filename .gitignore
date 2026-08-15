@@ -1,0 +1,18 @@
+node_modules/
+dist/
+build/
+*.local
+
+# runtime sqlite db files
+server/data/*.db
+server/data/*.db-journal
+server/data/*.db-wal
+server/data/*.db-shm
+
+.env
+.env.local
+
+# editor/OS
+.vscode/
+.DS_Store
+Thumbs.db
