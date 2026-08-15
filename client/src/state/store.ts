@@ -33,7 +33,6 @@ export type GraphRFEdge = Edge<RFEdgeData>;
 const POSITION_SAVE_DEBOUNCE_MS = 400;
 const positionSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-const DRAG_LINK_HOLD_MS = 500;
 const DEFAULT_NODE_WIDTH = 180;
 const DEFAULT_NODE_HEIGHT = 90;
 
@@ -44,9 +43,7 @@ export interface DropHover {
 
 interface DragLinkSession {
   startPosition: { x: number; y: number };
-  hoverTimer: ReturnType<typeof setTimeout> | null;
   hoverKey: string | null;
-  linked: boolean;
 }
 
 // Keyed by dragged node id. Ephemeral per-gesture interaction state — not
@@ -66,8 +63,8 @@ function nodeRect(node: GraphRFNode) {
 /**
  * Finds which node (if any) the dragged node currently overlaps most, and
  * whether the dragged node's center sits over that target's top or bottom
- * half — hovering the bottom half means "dragged blocks target", hovering
- * the top half means "dragged is blocked by (depends on) target".
+ * half — hovering the top half means "dragged blocks target", hovering the
+ * bottom half means "dragged is blocked by (depends on) target".
  */
 export function findDropTarget(
   draggedId: string,
@@ -238,46 +235,37 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
 
   onNodeDragStart: (id, position) => {
-    dragLinkSessions.set(id, { startPosition: position, hoverTimer: null, hoverKey: null, linked: false });
+    dragLinkSessions.set(id, { startPosition: position, hoverKey: null });
   },
 
   onNodeDrag: (id, position) => {
     const session = dragLinkSessions.get(id);
-    if (!session || session.linked) return;
+    if (!session) return;
 
     const target = findDropTarget(id, position, get().nodes);
     const key = target ? `${target.id}:${target.half}` : null;
     if (key === session.hoverKey) return;
 
-    if (session.hoverTimer) {
-      clearTimeout(session.hoverTimer);
-      session.hoverTimer = null;
-    }
     session.hoverKey = key;
     set({ dropHover: target ? { targetId: target.id, half: target.half } : null });
-
-    if (target) {
-      session.hoverTimer = setTimeout(() => {
-        session.linked = true;
-        session.hoverTimer = null;
-        const relationshipType: RelationshipType = target.half === "bottom" ? "blocks" : "depends_on";
-        get().createEdge(id, target.id, relationshipType);
-        set({ dropHover: null });
-      }, DRAG_LINK_HOLD_MS);
-    }
   },
 
   onNodeDragStop: (id, position) => {
     const session = dragLinkSessions.get(id);
-    if (session?.hoverTimer) clearTimeout(session.hoverTimer);
-    const finalPosition = session?.linked ? session.startPosition : position;
     dragLinkSessions.delete(id);
     set({ dropHover: null });
 
-    if (session?.linked) {
+    const target = findDropTarget(id, position, get().nodes);
+    if (target && session) {
+      const relationshipType: RelationshipType = target.half === "top" ? "blocks" : "depends_on";
+      get().createEdge(id, target.id, relationshipType);
+      const finalPosition = session.startPosition;
       set({ nodes: get().nodes.map((n) => (n.id === id ? { ...n, position: finalPosition } : n)) });
+      schedulePositionSave(id, finalPosition, (message) => set({ error: message }));
+      return;
     }
-    schedulePositionSave(id, finalPosition, (message) => set({ error: message }));
+
+    schedulePositionSave(id, position, (message) => set({ error: message }));
   },
 
   selectNode: (id) => set({ selectedId: id }),
