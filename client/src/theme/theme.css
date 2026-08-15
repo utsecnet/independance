@@ -23,6 +23,10 @@
   --status-blocked-fg: #f293c3;
   --status-complete-bg: rgba(154, 222, 130, 0.18);
   --status-complete-fg: #a9e88f;
+  --status-plan-bg: rgba(154, 107, 222, 0.2);
+  --status-plan-fg: #c4a8f0;
+  --status-review-bg: rgba(224, 85, 158, 0.2);
+  --status-review-fg: #f293c3;
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
@@ -54,6 +58,10 @@
   --status-blocked-fg: #a12e6c;
   --status-complete-bg: rgba(69, 156, 43, 0.12);
   --status-complete-fg: #3d7a29;
+  --status-plan-bg: rgba(122, 79, 196, 0.12);
+  --status-plan-fg: #6b3fb8;
+  --status-review-bg: rgba(194, 62, 136, 0.12);
+  --status-review-fg: #a12e6c;
 
   --shadow-sm: 0 1px 3px rgba(30, 20, 50, 0.08);
   --shadow-md: 0 8px 24px rgba(30, 20, 50, 0.12);

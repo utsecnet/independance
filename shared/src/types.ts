@@ -1,6 +1,10 @@
 export type NodeType = "task" | "project" | "poam";
 
-export type NodeStatus = "not_started" | "in_progress" | "blocked" | "complete";
+export type TaskProjectStatus = "not_started" | "in_progress" | "blocked" | "complete";
+
+export type PoamStatus = "drafting" | "assessment" | "planning" | "isso_review" | "issm_review" | "complete";
+
+export type NodeStatus = TaskProjectStatus | PoamStatus;
 
 export type RelationshipType = "depends_on" | "blocks" | "relates_to" | "remediates";
 

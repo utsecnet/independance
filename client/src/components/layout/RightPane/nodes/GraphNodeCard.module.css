@@ -33,10 +33,10 @@
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  text-transform: capitalize;
 }
 
-.status-not_started {
+.status-not_started,
+.status-drafting {
   background: var(--status-not-started-bg);
   color: var(--status-not-started-fg);
 }
@@ -54,6 +54,18 @@
 .status-complete {
   background: var(--status-complete-bg);
   color: var(--status-complete-fg);
+}
+
+.status-assessment,
+.status-planning {
+  background: var(--status-plan-bg);
+  color: var(--status-plan-fg);
+}
+
+.status-isso_review,
+.status-issm_review {
+  background: var(--status-review-bg);
+  color: var(--status-review-fg);
 }
 
 .task {

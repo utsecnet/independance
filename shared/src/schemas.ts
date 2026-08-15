@@ -1,14 +1,23 @@
 import { z } from "zod";
 
 export const nodeTypeSchema = z.enum(["task", "project", "poam"]);
-export const nodeStatusSchema = z.enum(["not_started", "in_progress", "blocked", "complete"]);
+export const taskProjectStatusSchema = z.enum(["not_started", "in_progress", "blocked", "complete"]);
+export const poamStatusSchema = z.enum([
+  "drafting",
+  "assessment",
+  "planning",
+  "isso_review",
+  "issm_review",
+  "complete",
+]);
+export const nodeStatusSchema = z.union([taskProjectStatusSchema, poamStatusSchema]);
 export const relationshipTypeSchema = z.enum(["depends_on", "blocks", "relates_to", "remediates"]);
 
 export const poamMilestoneSchema = z.object({
   id: z.string(),
   title: z.string().min(1),
   targetDate: z.string(),
-  status: nodeStatusSchema,
+  status: taskProjectStatusSchema,
   completedDate: z.string().optional(),
 });
 

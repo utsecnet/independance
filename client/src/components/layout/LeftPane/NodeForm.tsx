@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import type { NodeMetadata, NodeStatus, NodeType } from "@independance/shared";
 import { useGraphStore, type GraphRFNode } from "../../../state/store";
 import { useDebouncedCallback } from "../../../hooks/useDebouncedCallback";
+import { STATUS_LABELS, defaultStatusForType, statusOptionsForType } from "../../../constants/nodeStatus";
 import { MetadataFields, type MetadataFormValues } from "./MetadataFields";
 import styles from "./NodeForm.module.css";
 
 const AUTOSAVE_DEBOUNCE_MS = 500;
 
-const STATUS_OPTIONS: NodeStatus[] = ["not_started", "in_progress", "blocked", "complete"];
 const TYPE_OPTIONS: NodeType[] = ["task", "project", "poam"];
 
 function metadataToFormValues(type: NodeType, metadata: NodeMetadata): MetadataFormValues {
@@ -74,7 +74,7 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
   const [type, setType] = useState<NodeType>(editingNode?.data.nodeType ?? "task");
   const [title, setTitle] = useState(editingNode?.data.title ?? "");
   const [description, setDescription] = useState(editingNode?.data.description ?? "");
-  const [status, setStatus] = useState<NodeStatus>(editingNode?.data.status ?? "not_started");
+  const [status, setStatus] = useState<NodeStatus>(editingNode?.data.status ?? defaultStatusForType("task"));
   const [metaValues, setMetaValues] = useState<MetadataFormValues>(
     editingNode ? metadataToFormValues(editingNode.data.nodeType, editingNode.data.metadata) : {}
   );
@@ -84,6 +84,12 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
 
   const isEditing = editingNode !== null;
   const skipNextAutosave = useRef(true);
+
+  function handleTypeChange(newType: NodeType) {
+    setType(newType);
+    setStatus(defaultStatusForType(newType));
+    setMetaValues({});
+  }
 
   async function persistEdit() {
     if (!editingNode || !title.trim()) return;
@@ -125,7 +131,7 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
         await createNode({ type, title, description, status, metadata });
         setTitle("");
         setDescription("");
-        setStatus("not_started");
+        setStatus(defaultStatusForType(type));
         setMetaValues({});
       }
     } catch (err) {
@@ -152,7 +158,11 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
       <div className={styles.row}>
         <label className={styles.field}>
           <span>Type</span>
-          <select value={type} onChange={(e) => setType(e.target.value as NodeType)} disabled={isEditing}>
+          <select
+            value={type}
+            onChange={(e) => handleTypeChange(e.target.value as NodeType)}
+            disabled={isEditing}
+          >
             {TYPE_OPTIONS.map((t) => (
               <option key={t} value={t}>
                 {t === "poam" ? "POA&M" : t[0].toUpperCase() + t.slice(1)}
@@ -163,9 +173,9 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
         <label className={styles.field}>
           <span>Status</span>
           <select value={status} onChange={(e) => setStatus(e.target.value as NodeStatus)}>
-            {STATUS_OPTIONS.map((s) => (
+            {statusOptionsForType(type).map((s) => (
               <option key={s} value={s}>
-                {s.replace("_", " ")}
+                {STATUS_LABELS[s]}
               </option>
             ))}
           </select>
