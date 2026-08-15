@@ -87,6 +87,7 @@ interface GraphState {
   onEdgesDelete: (edges: GraphRFEdge[]) => Promise<void>;
   onNodeDragStop: (id: string, position: { x: number; y: number }) => void;
   selectNode: (id: string | null) => void;
+  clearError: () => void;
 
   createNode: (input: {
     type: NodeType;
@@ -167,6 +168,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   },
 
   selectNode: (id) => set({ selectedId: id }),
+  clearError: () => set({ error: null }),
 
   createNode: async (input) => {
     const payload: CreateNodePayload = {

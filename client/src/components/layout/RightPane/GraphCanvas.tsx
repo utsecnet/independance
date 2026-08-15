@@ -40,6 +40,14 @@ export function GraphCanvas() {
 
   return (
     <div className={styles.pane} ref={paneRef}>
+      {nodes.length === 0 && (
+        <div className={styles.empty}>
+          <div>
+            <div className={styles.emptyTitle}>No dependency map yet</div>
+            <div>Add your first task, project, or POA&amp;M from the left to start mapping.</div>
+          </div>
+        </div>
+      )}
       <ReactFlow<GraphRFNode, GraphRFEdge>
         nodes={nodes}
         edges={edges}

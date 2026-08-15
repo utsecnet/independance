@@ -1,0 +1,44 @@
+.banner {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--accent-magenta);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  color: var(--text-h);
+  font-size: 13px;
+  max-width: 480px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent-magenta);
+  flex-shrink: 0;
+}
+
+.message {
+  flex: 1;
+}
+
+.dismiss {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.dismiss:hover {
+  color: var(--text-h);
+}
