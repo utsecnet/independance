@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import {
-  addEdge,
   applyEdgeChanges,
   applyNodeChanges,
   type Connection,
@@ -9,7 +8,11 @@ import {
   type Node,
   type NodeChange,
 } from "@xyflow/react";
-import type { NodeMetadata, NodeStatus, NodeType, RelationshipType } from "@independance/shared";
+import type { GraphEdge, GraphNode, NodeMetadata, NodeStatus, NodeType, RelationshipType } from "@independance/shared";
+import { graphApi } from "../api/graph";
+import { nodesApi, type CreateNodePayload, type UpdateNodePayload } from "../api/nodes";
+import { edgesApi } from "../api/edges";
+import { ApiError } from "../api/client";
 
 export interface RFNodeData extends Record<string, unknown> {
   title: string;
@@ -21,92 +24,163 @@ export interface RFNodeData extends Record<string, unknown> {
 
 export interface RFEdgeData extends Record<string, unknown> {
   relationshipType: RelationshipType;
+  label?: string;
 }
 
 export type GraphRFNode = Node<RFNodeData>;
 export type GraphRFEdge = Edge<RFEdgeData>;
 
-function sampleNodes(): GraphRFNode[] {
-  return [
-    {
-      id: "n-project-1",
-      type: "project",
-      position: { x: 0, y: 0 },
-      data: { title: "Modernize Auth", status: "in_progress", nodeType: "project", metadata: {} },
+function toRFNode(node: GraphNode): GraphRFNode {
+  return {
+    id: node.id,
+    type: node.type,
+    position: node.position,
+    data: {
+      title: node.title,
+      description: node.description,
+      status: node.status,
+      nodeType: node.type,
+      metadata: node.metadata,
     },
-    {
-      id: "n-task-1",
-      type: "task",
-      position: { x: -220, y: 180 },
-      data: { title: "Design token schema", status: "complete", nodeType: "task", metadata: {} },
-    },
-    {
-      id: "n-task-2",
-      type: "task",
-      position: { x: 220, y: 180 },
-      data: { title: "Migrate session store", status: "in_progress", nodeType: "task", metadata: {} },
-    },
-    {
-      id: "n-poam-1",
-      type: "poam",
-      position: { x: 0, y: 360 },
-      data: {
-        title: "Remediate weak cipher usage",
-        status: "not_started",
-        nodeType: "poam",
-        metadata: { severity: "high" },
-      },
-    },
-  ];
+  };
 }
 
-function sampleEdges(): GraphRFEdge[] {
-  return [
-    {
-      id: "e-1",
-      source: "n-project-1",
-      target: "n-task-1",
-      data: { relationshipType: "relates_to" },
-    },
-    {
-      id: "e-2",
-      source: "n-project-1",
-      target: "n-task-2",
-      data: { relationshipType: "relates_to" },
-    },
-    {
-      id: "e-3",
-      source: "n-task-2",
-      target: "n-poam-1",
-      data: { relationshipType: "remediates" },
-    },
-  ];
+function toRFEdge(edge: GraphEdge): GraphRFEdge {
+  return {
+    id: edge.id,
+    source: edge.sourceId,
+    target: edge.targetId,
+    data: { relationshipType: edge.relationshipType, label: edge.label },
+  };
 }
 
 interface GraphState {
   nodes: GraphRFNode[];
   edges: GraphRFEdge[];
   selectedId: string | null;
+  status: "idle" | "loading" | "ready" | "error";
+  error: string | null;
+
+  loadGraph: () => Promise<void>;
   onNodesChange: (changes: NodeChange<GraphRFNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<GraphRFEdge>[]) => void;
-  onConnect: (connection: Connection) => void;
+  onConnect: (connection: Connection) => Promise<void>;
+  onNodesDelete: (nodes: GraphRFNode[]) => Promise<void>;
+  onEdgesDelete: (edges: GraphRFEdge[]) => Promise<void>;
   selectNode: (id: string | null) => void;
+
+  createNode: (input: {
+    type: NodeType;
+    title: string;
+    description?: string;
+    status?: NodeStatus;
+    metadata?: NodeMetadata;
+    position?: { x: number; y: number };
+  }) => Promise<GraphRFNode>;
+  updateNode: (id: string, patch: UpdateNodePayload) => Promise<void>;
+  deleteNode: (id: string) => Promise<void>;
+  createEdge: (sourceId: string, targetId: string, relationshipType?: RelationshipType) => Promise<void>;
 }
 
 export const useGraphStore = create<GraphState>((set, get) => ({
-  nodes: sampleNodes(),
-  edges: sampleEdges(),
+  nodes: [],
+  edges: [],
   selectedId: null,
+  status: "idle",
+  error: null,
+
+  loadGraph: async () => {
+    set({ status: "loading", error: null });
+    try {
+      const graph = await graphApi.get();
+      set({
+        nodes: graph.nodes.map(toRFNode),
+        edges: graph.edges.map(toRFEdge),
+        status: "ready",
+      });
+    } catch (err) {
+      set({ status: "error", error: err instanceof Error ? err.message : "Failed to load graph" });
+    }
+  },
+
   onNodesChange: (changes) => {
     set({ nodes: applyNodeChanges(changes, get().nodes) });
   },
+
   onEdgesChange: (changes) => {
     set({ edges: applyEdgeChanges(changes, get().edges) });
   },
-  onConnect: (connection) => {
+
+  onConnect: async (connection) => {
+    if (!connection.source || !connection.target) return;
+    await get().createEdge(connection.source, connection.target);
+  },
+
+  onNodesDelete: async (nodesToDelete) => {
+    for (const node of nodesToDelete) {
+      try {
+        await nodesApi.remove(node.id);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 404)) {
+          set({ error: err instanceof Error ? err.message : "Failed to delete node" });
+        }
+      }
+    }
+    if (nodesToDelete.some((n) => n.id === get().selectedId)) {
+      set({ selectedId: null });
+    }
+  },
+
+  onEdgesDelete: async (edgesToDelete) => {
+    for (const edge of edgesToDelete) {
+      try {
+        await edgesApi.remove(edge.id);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 404)) {
+          set({ error: err instanceof Error ? err.message : "Failed to delete edge" });
+        }
+      }
+    }
+  },
+
+  selectNode: (id) => set({ selectedId: id }),
+
+  createNode: async (input) => {
+    const payload: CreateNodePayload = {
+      id: crypto.randomUUID(),
+      type: input.type,
+      title: input.title,
+      description: input.description,
+      status: input.status ?? "not_started",
+      metadata: input.metadata ?? {},
+      position: input.position ?? { x: Math.random() * 400 - 200, y: Math.random() * 300 },
+    };
+    const created = await nodesApi.create(payload);
+    const rfNode = toRFNode(created);
+    set({ nodes: [...get().nodes, rfNode], selectedId: rfNode.id });
+    return rfNode;
+  },
+
+  updateNode: async (id, patch) => {
+    const updated = await nodesApi.update(id, patch);
+    set({ nodes: get().nodes.map((n) => (n.id === id ? toRFNode(updated) : n)) });
+  },
+
+  deleteNode: async (id) => {
+    await nodesApi.remove(id);
     set({
-      edges: addEdge({ ...connection, data: { relationshipType: "depends_on" } }, get().edges),
+      nodes: get().nodes.filter((n) => n.id !== id),
+      edges: get().edges.filter((e) => e.source !== id && e.target !== id),
+      selectedId: get().selectedId === id ? null : get().selectedId,
     });
   },
-  selectNode: (id) => set({ selectedId: id }),
+
+  createEdge: async (sourceId, targetId, relationshipType = "depends_on") => {
+    try {
+      const created = await edgesApi.create({ id: crypto.randomUUID(), sourceId, targetId, relationshipType });
+      set({ edges: [...get().edges, toRFEdge(created)] });
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : "Failed to create edge" });
+    }
+  },
 }));
