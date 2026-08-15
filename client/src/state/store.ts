@@ -130,11 +130,29 @@ function toRFNode(node: GraphNode): GraphRFNode {
   };
 }
 
+/**
+ * Each node renders four handles — top-source/top-target and
+ * bottom-source/bottom-target, stacked in pairs at the same two visual
+ * spots — so an edge can visually run either direction depending on what
+ * it means. "blocks" reads as the blocker's top flowing down into the
+ * blocked node's bottom; every other relationship (depends_on included)
+ * keeps the original bottom-to-top flow.
+ */
+function handlesForRelationship(relationshipType: RelationshipType): { sourceHandle: string; targetHandle: string } {
+  if (relationshipType === "blocks") {
+    return { sourceHandle: "top-source", targetHandle: "bottom-target" };
+  }
+  return { sourceHandle: "bottom-source", targetHandle: "top-target" };
+}
+
 function toRFEdge(edge: GraphEdge): GraphRFEdge {
+  const { sourceHandle, targetHandle } = handlesForRelationship(edge.relationshipType);
   return {
     id: edge.id,
     source: edge.sourceId,
     target: edge.targetId,
+    sourceHandle,
+    targetHandle,
     data: { relationshipType: edge.relationshipType, label: edge.label },
   };
 }
