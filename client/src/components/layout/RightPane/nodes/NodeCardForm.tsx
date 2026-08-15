@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { NodeMetadata, NodeStatus, NodeType } from "@independance/shared";
 import { useGraphStore, type RFNodeData } from "../../../../state/store";
+import { useConfigStore } from "../../../../state/configStore";
 import { useDebouncedCallback } from "../../../../hooks/useDebouncedCallback";
-import { STATUS_LABELS, statusOptionsForType } from "../../../../constants/nodeStatus";
 import { MetadataFields, type MetadataFormValues } from "./MetadataFields";
+import { RelationshipsTab } from "./RelationshipsTab";
 import styles from "./NodeCardForm.module.css";
 
 const AUTOSAVE_DEBOUNCE_MS = 500;
+const TABS = ["Details", "Relationships"] as const;
+type Tab = (typeof TABS)[number];
 
 function metadataToFormValues(type: NodeType, metadata: NodeMetadata): MetadataFormValues {
   const m = metadata as Record<string, unknown>;
@@ -24,15 +27,18 @@ function metadataToFormValues(type: NodeType, metadata: NodeMetadata): MetadataF
       tags: Array.isArray(m.tags) ? (m.tags as string[]).join(", ") : "",
     };
   }
-  return {
-    severity: (m.severity as string) ?? "",
-    dueDate: (m.dueDate as string) ?? "",
-    poc: (m.poc as string) ?? "",
-    controlRefs: Array.isArray(m.controlRefs) ? (m.controlRefs as string[]).join(", ") : "",
-  };
+  if (type === "poam") {
+    return {
+      severity: (m.severity as string) ?? "",
+      dueDate: (m.dueDate as string) ?? "",
+      poc: (m.poc as string) ?? "",
+      controlRefs: Array.isArray(m.controlRefs) ? (m.controlRefs as string[]).join(", ") : "",
+    };
+  }
+  return {};
 }
 
-function formValuesToMetadata(type: NodeType, values: MetadataFormValues): NodeMetadata {
+function formValuesToMetadata(type: NodeType, values: MetadataFormValues, existing: NodeMetadata): NodeMetadata {
   if (type === "task") {
     return {
       assignee: values.assignee || undefined,
@@ -49,14 +55,19 @@ function formValuesToMetadata(type: NodeType, values: MetadataFormValues): NodeM
         : undefined,
     };
   }
-  return {
-    severity: (values.severity || undefined) as "low" | "moderate" | "high" | undefined,
-    dueDate: values.dueDate || undefined,
-    poc: values.poc || undefined,
-    controlRefs: values.controlRefs
-      ? values.controlRefs.split(",").map((t) => t.trim()).filter(Boolean)
-      : undefined,
-  };
+  if (type === "poam") {
+    return {
+      severity: (values.severity || undefined) as "very_high" | "high" | "moderate" | "low" | "very_low" | undefined,
+      dueDate: values.dueDate || undefined,
+      poc: values.poc || undefined,
+      controlRefs: values.controlRefs
+        ? values.controlRefs.split(",").map((t) => t.trim()).filter(Boolean)
+        : undefined,
+    };
+  }
+  // Custom types have no metadata form fields to edit, so leave whatever was
+  // already stored untouched rather than clobbering it with {}.
+  return existing;
 }
 
 interface NodeCardFormProps {
@@ -70,6 +81,8 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
   const deleteNode = useGraphStore((s) => s.deleteNode);
 
   const type = data.nodeType;
+  const allStatuses = useConfigStore((s) => s.statuses);
+  const statuses = useMemo(() => allStatuses.filter((st) => st.typeId === type), [allStatuses, type]);
   const [title, setTitle] = useState(data.title);
   const [description, setDescription] = useState(data.description ?? "");
   const [status, setStatus] = useState<NodeStatus>(data.status);
@@ -77,6 +90,7 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [activeTab, setActiveTab] = useState<Tab>("Details");
 
   const skipNextAutosave = useRef(true);
   const isDirty = useRef(false);
@@ -94,7 +108,7 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
     setSaveState("saving");
     setError(null);
     try {
-      const metadata = formValuesToMetadata(type, metaValues);
+      const metadata = formValuesToMetadata(type, metaValues, data.metadata);
       await updateNode(id, { title, description, status, metadata });
       isDirty.current = false;
       setSaveState("saved");
@@ -123,7 +137,7 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
       if (!isDirty.current) return;
       const { title, description, status, metaValues } = latestValues.current;
       if (!title.trim()) return;
-      const metadata = formValuesToMetadata(type, metaValues);
+      const metadata = formValuesToMetadata(type, metaValues, data.metadata);
       updateNode(id, { title, description, status, metadata }).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,27 +160,47 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
       onClick={(e) => e.stopPropagation()}
       onSubmit={(e) => e.preventDefault()}
     >
-      <div className={styles.row}>
-        <label className={styles.field}>
-          <span>Status</span>
-          <select value={status} onChange={(e) => setStatus(e.target.value as NodeStatus)}>
-            {statusOptionsForType(type).map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABELS[s]}
-              </option>
-            ))}
-          </select>
-        </label>
+      <div className={styles.tabs}>
+        {TABS.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            className={`${styles.tab} ${tab === activeTab ? styles.tabActive : ""}`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab}
+          </button>
+        ))}
       </div>
-      <label className={styles.field}>
-        <span>Title</span>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} required />
-      </label>
-      <label className={styles.field}>
-        <span>Description</span>
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
-      </label>
-      <MetadataFields type={type} values={metaValues} onChange={setMetaValues} />
+
+      {activeTab === "Details" ? (
+        <>
+          <div className={styles.row}>
+            <label className={styles.field}>
+              <span>Status</span>
+              <select value={status} onChange={(e) => setStatus(e.target.value as NodeStatus)}>
+                {statuses.map((s) => (
+                  <option key={s.id} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className={styles.field}>
+            <span>Title</span>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} required />
+          </label>
+          <label className={styles.field}>
+            <span>Description</span>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
+          </label>
+          <MetadataFields type={type} values={metaValues} onChange={setMetaValues} />
+        </>
+      ) : (
+        <RelationshipsTab nodeId={id} />
+      )}
+
       {error && <div className={styles.error}>{error}</div>}
       {saveState !== "idle" && !error && (
         <div className={styles.saveStatus}>{saveState === "saving" ? "Saving…" : "Saved"}</div>

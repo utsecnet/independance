@@ -24,17 +24,18 @@ export function runMigrations(db: DatabaseSync): void {
 
   const markApplied = db.prepare("INSERT INTO _migrations (filename) VALUES (?)");
 
+  // Deliberately not auto-wrapped in BEGIN/COMMIT here: a migration that
+  // needs to toggle PRAGMA foreign_keys=OFF (required for SQLite's
+  // table-rebuild pattern, e.g. dropping a CHECK constraint) can only do so
+  // outside an active transaction, so it has to own its BEGIN/COMMIT itself
+  // — nesting our own BEGIN around that would fail ("cannot start a
+  // transaction within a transaction"). Simple migrations that don't need
+  // this can just list statements with no explicit transaction; each DDL
+  // statement is already atomic on its own.
   for (const file of files) {
     if (applied.has(file)) continue;
     const sql = readFileSync(path.join(MIGRATIONS_DIR, file), "utf-8");
-    db.exec("BEGIN");
-    try {
-      db.exec(sql);
-      markApplied.run(file);
-      db.exec("COMMIT");
-    } catch (err) {
-      db.exec("ROLLBACK");
-      throw err;
-    }
+    db.exec(sql);
+    markApplied.run(file);
   }
 }

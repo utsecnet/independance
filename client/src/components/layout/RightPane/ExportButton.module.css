@@ -1,7 +1,7 @@
 .wrapper {
   position: absolute;
   top: 14px;
-  left: 14px;
+  right: 14px;
   z-index: 20;
 }
 
@@ -11,19 +11,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-cyan-dim);
-  border: 1px solid var(--accent-cyan);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  color: var(--accent-cyan);
-  font-size: 20px;
-  line-height: 1;
+  color: var(--text);
   cursor: pointer;
   box-shadow: var(--shadow-sm);
 }
 
 .button:hover {
-  background: var(--accent-cyan);
-  color: var(--bg);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .overlay {
@@ -35,7 +38,7 @@
 .menu {
   position: absolute;
   top: 40px;
-  left: 0;
+  right: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
@@ -48,9 +51,8 @@
 }
 
 .menuItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: block;
+  width: 100%;
   text-align: left;
   background: none;
   border: none;
@@ -66,9 +68,17 @@
   color: var(--text-h);
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  flex-shrink: 0;
+.error {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  background: var(--surface-raised);
+  border: 1px solid var(--accent-magenta);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  padding: 8px 10px;
+  color: var(--accent-magenta);
+  font-size: 12px;
 }

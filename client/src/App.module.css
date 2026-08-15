@@ -9,3 +9,9 @@
   display: flex;
   min-height: 0;
 }
+
+.mapArea {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}

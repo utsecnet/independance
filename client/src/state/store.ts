@@ -8,11 +8,20 @@ import {
   type Node,
   type NodeChange,
 } from "@xyflow/react";
-import type { GraphEdge, GraphNode, NodeMetadata, NodeStatus, NodeType, RelationshipType } from "@independance/shared";
+import type {
+  GraphEdge,
+  GraphNode,
+  LinkOrientation,
+  NodeMetadata,
+  NodeStatus,
+  NodeType,
+  RelationshipType,
+} from "@independance/shared";
 import { graphApi } from "../api/graph";
 import { nodesApi, type CreateNodePayload, type UpdateNodePayload } from "../api/nodes";
 import { edgesApi } from "../api/edges";
 import { ApiError } from "../api/client";
+import { useConfigStore } from "./configStore";
 
 export interface RFNodeData extends Record<string, unknown> {
   title: string;
@@ -33,12 +42,14 @@ export type GraphRFEdge = Edge<RFEdgeData>;
 const POSITION_SAVE_DEBOUNCE_MS = 400;
 const positionSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-const DEFAULT_NODE_WIDTH = 180;
-const DEFAULT_NODE_HEIGHT = 90;
+export const DEFAULT_NODE_WIDTH = 180;
+export const DEFAULT_NODE_HEIGHT = 90;
+
+export type DropHalf = "top" | "bottom" | "left" | "right";
 
 export interface DropHover {
   targetId: string;
-  half: "top" | "bottom";
+  half: DropHalf;
 }
 
 interface DragLinkSession {
@@ -62,22 +73,29 @@ function nodeRect(node: GraphRFNode) {
 
 /**
  * Finds which node (if any) the dragged node currently overlaps most, and
- * whether the dragged node's center sits over that target's top or bottom
- * half — hovering the bottom half means "dragged blocks target", hovering
- * the top half means "dragged is blocked by (depends on) target".
+ * whether the dragged node's center sits over that target's near or far
+ * half along the active link axis. In vertical mode (default) that's
+ * top/bottom — hovering the bottom half means "dragged blocks target",
+ * hovering the top half means "dragged is blocked by (depends on) target".
+ * In horizontal mode it's left/right — hovering the left half means
+ * "dragged blocks target" (dragged tile ends up to target's left, matching
+ * the "A left of B, A blocks B" convention), hovering the right half means
+ * "dragged is blocked by (depends on) target".
  */
 export function findDropTarget(
   draggedId: string,
   draggedPosition: { x: number; y: number },
-  allNodes: GraphRFNode[]
-): { id: string; half: "top" | "bottom" } | null {
+  allNodes: GraphRFNode[],
+  orientation: LinkOrientation
+): { id: string; half: DropHalf } | null {
   const draggedNode = allNodes.find((n) => n.id === draggedId);
   const width = draggedNode?.measured?.width ?? DEFAULT_NODE_WIDTH;
   const height = draggedNode?.measured?.height ?? DEFAULT_NODE_HEIGHT;
   const draggedRect = { x: draggedPosition.x, y: draggedPosition.y, width, height };
+  const draggedCenterX = draggedPosition.x + width / 2;
   const draggedCenterY = draggedPosition.y + height / 2;
 
-  let best: { id: string; half: "top" | "bottom" } | null = null;
+  let best: { id: string; half: DropHalf } | null = null;
   let bestArea = 0;
 
   for (const node of allNodes) {
@@ -92,8 +110,13 @@ export function findDropTarget(
     const area = overlapX * overlapY;
     if (area > bestArea) {
       bestArea = area;
-      const midY = rect.y + rect.height / 2;
-      best = { id: node.id, half: draggedCenterY < midY ? "top" : "bottom" };
+      if (orientation === "horizontal") {
+        const midX = rect.x + rect.width / 2;
+        best = { id: node.id, half: draggedCenterX < midX ? "left" : "right" };
+      } else {
+        const midY = rect.y + rect.height / 2;
+        best = { id: node.id, half: draggedCenterY < midY ? "top" : "bottom" };
+      }
     }
   }
 
@@ -118,7 +141,7 @@ function schedulePositionSave(id: string, position: { x: number; y: number }, on
 function toRFNode(node: GraphNode): GraphRFNode {
   return {
     id: node.id,
-    type: node.type,
+    type: "graphNode",
     position: node.position,
     data: {
       title: node.title,
@@ -131,28 +154,72 @@ function toRFNode(node: GraphNode): GraphRFNode {
 }
 
 /**
- * Each node renders four handles — top-source/top-target and
- * bottom-source/bottom-target, stacked in pairs at the same two visual
- * spots — so an edge can visually run either direction depending on what
- * it means. "blocks" reads as the blocker's top flowing down into the
- * blocked node's bottom; every other relationship (depends_on included)
- * keeps the original bottom-to-top flow.
+ * Each node renders four handles at the two ends of the active link axis
+ * (top/bottom in vertical mode, left/right in horizontal mode) — a source
+ * AND a target handle stacked at each end — so an edge can visually run
+ * either direction depending on what it means. Both orientations connect
+ * the two nodes' *facing* sides — the side of each tile that's actually
+ * nearest the other tile — not a fixed side regardless of layout: for
+ * "blocks" the blocker sits on the near side of whichever edge faces the
+ * blocked tile (bottom when the blocker ends up above it, top when below;
+ * right when to its left, left when to its right), and the blocked tile's
+ * handle is the corresponding facing side back. Every other relationship
+ * (depends_on included) keeps the reverse flow.
+ *
+ * Deliberately NOT baked into the edge objects stored in this Zustand
+ * store: an edge's correct sourceHandle/targetHandle depends on the
+ * *current* linkOrientation setting, which lives in a separate store and
+ * can change at any time. Computing them once at fetch time and storing
+ * the result went stale the moment orientation changed afterward — nodes
+ * would re-render with the new orientation's handles while already-loaded
+ * edges kept pointing at the old orientation's (now nonexistent) handle
+ * ids, and React Flow would silently stop drawing them. Exported so
+ * GraphCanvas can derive each edge's handles fresh on every render via
+ * useMemo instead, which is correct by construction — there's no stale
+ * copy that a change to orientation needs to remember to go update.
  */
-function handlesForRelationship(relationshipType: RelationshipType): { sourceHandle: string; targetHandle: string } {
+export function handlesForRelationship(
+  relationshipType: RelationshipType,
+  orientation: LinkOrientation
+): { sourceHandle: string; targetHandle: string } {
+  if (orientation === "horizontal") {
+    if (relationshipType === "blocks") {
+      return { sourceHandle: "right-source", targetHandle: "left-target" };
+    }
+    return { sourceHandle: "left-source", targetHandle: "right-target" };
+  }
   if (relationshipType === "blocks") {
     return { sourceHandle: "top-source", targetHandle: "bottom-target" };
   }
   return { sourceHandle: "bottom-source", targetHandle: "top-target" };
 }
 
+/**
+ * Inverse of handlesForRelationship: React Flow's own connect-drag gesture
+ * (dragging directly from one handle circle to another) reports which
+ * specific handles were used, but until this was fixed `onConnect` ignored
+ * that and always created a "depends_on" edge — meaning "blocks" could
+ * never be hand-drawn, and hand-drawing a new line between two already-
+ * linked tiles in an attempt to reverse the relationship would either
+ * recreate the exact same edge (a confusing "already linked" 409) or leave
+ * the relationship unchanged instead of actually swapping blocker/blocked.
+ * Reading the handle pair back out lets a hand-drawn connection express
+ * "blocks" the same way the drag-a-whole-tile-over-another gesture does.
+ */
+function relationshipTypeForHandles(
+  sourceHandle: string | null | undefined,
+  targetHandle: string | null | undefined
+): RelationshipType {
+  if (sourceHandle === "top-source" && targetHandle === "bottom-target") return "blocks";
+  if (sourceHandle === "right-source" && targetHandle === "left-target") return "blocks";
+  return "depends_on";
+}
+
 function toRFEdge(edge: GraphEdge): GraphRFEdge {
-  const { sourceHandle, targetHandle } = handlesForRelationship(edge.relationshipType);
   return {
     id: edge.id,
     source: edge.sourceId,
     target: edge.targetId,
-    sourceHandle,
-    targetHandle,
     data: { relationshipType: edge.relationshipType, label: edge.label },
   };
 }
@@ -222,7 +289,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   onConnect: async (connection) => {
     if (!connection.source || !connection.target) return;
-    await get().createEdge(connection.source, connection.target);
+    const relationshipType = relationshipTypeForHandles(connection.sourceHandle, connection.targetHandle);
+    await get().createEdge(connection.source, connection.target, relationshipType);
   },
 
   onNodesDelete: async (nodesToDelete) => {
@@ -260,7 +328,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     const session = dragLinkSessions.get(id);
     if (!session) return;
 
-    const target = findDropTarget(id, position, get().nodes);
+    const orientation = useConfigStore.getState().linkOrientation;
+    const target = findDropTarget(id, position, get().nodes, orientation);
     const key = target ? `${target.id}:${target.half}` : null;
     if (key === session.hoverKey) return;
 
@@ -273,9 +342,11 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     dragLinkSessions.delete(id);
     set({ dropHover: null });
 
-    const target = findDropTarget(id, position, get().nodes);
+    const orientation = useConfigStore.getState().linkOrientation;
+    const target = findDropTarget(id, position, get().nodes, orientation);
     if (target && session) {
-      const relationshipType: RelationshipType = target.half === "bottom" ? "blocks" : "depends_on";
+      const relationshipType: RelationshipType =
+        target.half === "bottom" || target.half === "left" ? "blocks" : "depends_on";
       get().createEdge(id, target.id, relationshipType);
       const finalPosition = session.startPosition;
       set({ nodes: get().nodes.map((n) => (n.id === id ? { ...n, position: finalPosition } : n)) });
@@ -295,7 +366,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
       type: input.type,
       title: input.title,
       description: input.description,
-      status: input.status ?? "not_started",
+      status: input.status,
       metadata: input.metadata ?? {},
       position: input.position ?? { x: Math.random() * 400 - 200, y: Math.random() * 300 },
     };

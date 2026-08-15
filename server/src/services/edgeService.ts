@@ -27,6 +27,8 @@ function blockingPair(
   return null;
 }
 
+const SQLITE_CONSTRAINT_UNIQUE = 2067;
+
 export function createEdge(db: DatabaseSync, input: z.infer<typeof createEdgeSchema>) {
   getNodeOrThrow(db, input.sourceId);
   getNodeOrThrow(db, input.targetId);
@@ -41,7 +43,14 @@ export function createEdge(db: DatabaseSync, input: z.infer<typeof createEdgeSch
     }
   }
 
-  return edgeQueries.insertEdge(db, input);
+  try {
+    return edgeQueries.insertEdge(db, input);
+  } catch (err) {
+    if (err && typeof err === "object" && "errcode" in err && err.errcode === SQLITE_CONSTRAINT_UNIQUE) {
+      throw new HttpError(409, "duplicate_edge", "These two items are already linked this way.");
+    }
+    throw err;
+  }
 }
 
 export function updateEdge(db: DatabaseSync, id: string, input: z.infer<typeof updateEdgeSchema>) {

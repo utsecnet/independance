@@ -67,29 +67,35 @@ export function MetadataFields({ type, values, onChange }: MetadataFieldsProps) 
     );
   }
 
-  return (
-    <>
-      <label className={styles.field}>
-        <span>Severity</span>
-        <select value={values.severity ?? ""} onChange={(e) => set("severity", e.target.value)}>
-          <option value="">—</option>
-          <option value="low">Low</option>
-          <option value="moderate">Moderate</option>
-          <option value="high">High</option>
-        </select>
-      </label>
-      <label className={styles.field}>
-        <span>Due date</span>
-        <input type="date" value={values.dueDate ?? ""} onChange={(e) => set("dueDate", e.target.value)} />
-      </label>
-      <label className={styles.field}>
-        <span>POC</span>
-        <input value={values.poc ?? ""} onChange={(e) => set("poc", e.target.value)} />
-      </label>
-      <label className={styles.field}>
-        <span>Control refs (comma separated)</span>
-        <input value={values.controlRefs ?? ""} onChange={(e) => set("controlRefs", e.target.value)} />
-      </label>
-    </>
-  );
+  if (type === "poam") {
+    return (
+      <>
+        <label className={styles.field}>
+          <span>Severity</span>
+          <select value={values.severity ?? ""} onChange={(e) => set("severity", e.target.value)}>
+            <option value="">—</option>
+            <option value="very_high">Very High</option>
+            <option value="high">High</option>
+            <option value="moderate">Moderate</option>
+            <option value="low">Low</option>
+            <option value="very_low">Very Low</option>
+          </select>
+        </label>
+        <label className={styles.field}>
+          <span>Due date</span>
+          <input type="date" value={values.dueDate ?? ""} onChange={(e) => set("dueDate", e.target.value)} />
+        </label>
+        <label className={styles.field}>
+          <span>POC</span>
+          <input value={values.poc ?? ""} onChange={(e) => set("poc", e.target.value)} />
+        </label>
+        <label className={styles.field}>
+          <span>Control refs (comma separated)</span>
+          <input value={values.controlRefs ?? ""} onChange={(e) => set("controlRefs", e.target.value)} />
+        </label>
+      </>
+    );
+  }
+
+  return null;
 }

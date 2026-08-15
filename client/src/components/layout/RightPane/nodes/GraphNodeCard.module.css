@@ -4,6 +4,7 @@
   padding: 10px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
   background: var(--surface);
   color: var(--text-h);
   box-shadow: var(--shadow-sm);
@@ -47,6 +48,32 @@
   background: var(--accent-cyan-dim);
   color: var(--accent-cyan);
   box-shadow: inset 0 0 0 2px var(--accent-cyan);
+}
+
+.dropHintLeft,
+.dropHintRight {
+  top: 0;
+  bottom: 0;
+  left: auto;
+  right: auto;
+  width: 50%;
+  height: auto;
+}
+
+.dropHintLeft {
+  left: 0;
+  border-radius: 10px 0 0 10px;
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+  box-shadow: inset 0 0 0 2px var(--accent-cyan);
+}
+
+.dropHintRight {
+  right: 0;
+  border-radius: 0 10px 10px 0;
+  background: var(--status-review-bg);
+  color: var(--status-review-fg);
+  box-shadow: inset 0 0 0 2px var(--accent-magenta);
 }
 
 .typeLabel {
@@ -103,21 +130,22 @@
   color: var(--status-review-fg);
 }
 
-.task {
-  border-left: 3px solid var(--accent-cyan);
-}
-
-.project {
-  border-left: 3px solid var(--accent-magenta);
-}
-
-.poam {
-  border-left: 3px solid var(--accent-purple);
-}
-
 .handle {
   width: 8px;
   height: 8px;
   background: var(--accent-cyan);
   border: 1px solid var(--surface);
+}
+
+.extraField {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.extraFieldLabel {
+  opacity: 0.75;
 }

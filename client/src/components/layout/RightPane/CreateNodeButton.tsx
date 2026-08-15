@@ -1,13 +1,7 @@
 import { useState } from "react";
 import type { NodeType } from "@independance/shared";
-import { NODE_TYPES, TYPE_LABEL } from "../../../constants/nodeType";
+import { useConfigStore } from "../../../state/configStore";
 import styles from "./CreateNodeButton.module.css";
-
-const TYPE_DOT_CLASS: Record<NodeType, string> = {
-  task: styles.dotTask,
-  project: styles.dotProject,
-  poam: styles.dotPoam,
-};
 
 interface CreateNodeButtonProps {
   onCreate: (type: NodeType) => void;
@@ -15,6 +9,7 @@ interface CreateNodeButtonProps {
 
 export function CreateNodeButton({ onCreate }: CreateNodeButtonProps) {
   const [open, setOpen] = useState(false);
+  const nodeTypes = useConfigStore((s) => s.nodeTypes);
 
   return (
     <div className={styles.wrapper}>
@@ -22,8 +17,8 @@ export function CreateNodeButton({ onCreate }: CreateNodeButtonProps) {
         type="button"
         className={styles.button}
         onClick={() => setOpen((v) => !v)}
-        aria-label="Add task, project, or POA&M"
-        title="Add task, project, or POA&M"
+        aria-label="Add a new item"
+        title="Add a new item"
       >
         +
       </button>
@@ -31,18 +26,18 @@ export function CreateNodeButton({ onCreate }: CreateNodeButtonProps) {
         <>
           <div className={styles.overlay} onClick={() => setOpen(false)} />
           <div className={styles.menu}>
-            {NODE_TYPES.map((type) => (
+            {nodeTypes.map((type) => (
               <button
-                key={type}
+                key={type.id}
                 type="button"
                 className={styles.menuItem}
                 onClick={() => {
-                  onCreate(type);
+                  onCreate(type.id);
                   setOpen(false);
                 }}
               >
-                <span className={`${styles.dot} ${TYPE_DOT_CLASS[type]}`} />
-                {TYPE_LABEL[type]}
+                <span className={styles.dot} style={{ background: type.color }} />
+                {type.label}
               </button>
             ))}
           </div>

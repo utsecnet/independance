@@ -2,12 +2,12 @@ import { useId } from "react";
 import { useTheme } from "../../../theme/useTheme";
 import styles from "./TopBar.module.css";
 
-function SunIcon() {
+function SunIcon({ size = 34 }: { size?: number }) {
   const coreId = useId();
   const flareId = useId();
 
   return (
-    <svg width="34" height="34" viewBox="0 0 24 24">
+    <svg width={size} height={size} viewBox="0 0 24 24">
       <defs>
         {/* Same gradient-glow technique as the black hole icon, for visual
             consistency: a warm radial core plus a soft outer flare instead
@@ -30,11 +30,11 @@ function SunIcon() {
   );
 }
 
-function BlackHoleIcon() {
+function BlackHoleIcon({ size = 34 }: { size?: number }) {
   const gradientId = useId();
 
   return (
-    <svg width="34" height="34" viewBox="0 0 24 24">
+    <svg width={size} height={size} viewBox="0 0 24 24">
       <defs>
         {/* Warm accretion-disk glow: near-white core fading through gold and
             orange to transparent red, matching a gravitationally-lensed
@@ -60,16 +60,25 @@ function BlackHoleIcon() {
 
 export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
+  const isDark = theme === "dark";
 
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={isDark}
       className={styles.themeToggle}
       onClick={toggleTheme}
-      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
       aria-label="Toggle theme"
     >
-      {theme === "dark" ? <BlackHoleIcon /> : <SunIcon />}
+      <span className={styles.iconSlot}>
+        <SunIcon size={18} />
+      </span>
+      <span className={styles.iconSlot}>
+        <BlackHoleIcon size={18} />
+      </span>
+      <span className={`${styles.knob} ${isDark ? styles.knobRight : ""}`} />
     </button>
   );
 }

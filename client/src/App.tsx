@@ -2,35 +2,32 @@ import { useState } from "react";
 import { TopBar } from "./components/layout/TopBar/TopBar";
 import { LeftSubMenu } from "./components/layout/LeftSubMenu/LeftSubMenu";
 import { GraphCanvas } from "./components/layout/RightPane/GraphCanvas";
+import { SettingsBlade } from "./components/layout/Settings/SettingsBlade";
 import { ErrorBanner } from "./components/layout/ErrorBanner/ErrorBanner";
 import styles from "./App.module.css";
 
-const TOP_SECTIONS = ["Map", "Settings"];
-const SUBMENU_ITEMS: Record<string, string[]> = {
-  Map: ["All", "Tasks", "Projects", "POA&Ms"],
-  Settings: ["Appearance", "Data"],
-};
+const MAP_FILTERS = ["All", "Tasks", "Projects", "POA&Ms"];
 
 function App() {
-  const [activeSection, setActiveSection] = useState("Map");
-  const [activeSubItem, setActiveSubItem] = useState("All");
-
-  function handleSelectSection(section: string) {
-    setActiveSection(section);
-    setActiveSubItem(SUBMENU_ITEMS[section][0]);
-  }
+  const [activeFilter, setActiveFilter] = useState("All");
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <div className={styles.shell}>
-      <TopBar sections={TOP_SECTIONS} activeSection={activeSection} onSelectSection={handleSelectSection} />
+      <TopBar />
       <div className={styles.body}>
         <LeftSubMenu
-          heading={activeSection}
-          items={SUBMENU_ITEMS[activeSection]}
-          activeItem={activeSubItem}
-          onSelectItem={setActiveSubItem}
+          heading="Map"
+          items={MAP_FILTERS}
+          activeItem={activeFilter}
+          onSelectItem={setActiveFilter}
+          settingsActive={settingsOpen}
+          onToggleSettings={() => setSettingsOpen((v) => !v)}
         />
-        <GraphCanvas />
+        <div className={styles.mapArea}>
+          <GraphCanvas />
+          <SettingsBlade open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        </div>
       </div>
       <ErrorBanner />
     </div>

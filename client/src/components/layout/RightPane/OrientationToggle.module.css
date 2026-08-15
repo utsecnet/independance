@@ -1,46 +1,25 @@
-.bar {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  height: 52px;
-  padding: 0 16px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.brand {
-  font-weight: 700;
-  font-size: 15px;
-  color: var(--text-h);
-  letter-spacing: 0.02em;
-}
-
-.brandAccent {
-  color: var(--accent-cyan);
-}
-
-.spacer {
-  flex: 1;
-}
-
-.themeToggle {
-  position: relative;
+.toggle {
+  position: absolute;
+  top: 14px;
+  right: 58px;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 64px;
-  height: 30px;
+  height: 34px;
   padding: 0 3px;
-  background: var(--bg);
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: 999px;
+  color: var(--text);
   cursor: pointer;
-  flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
-.themeToggle:hover {
+.toggle:hover {
   border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
 }
 
 .iconSlot {
@@ -55,8 +34,8 @@
 
 .knob {
   position: absolute;
-  top: 2px;
-  left: 2px;
+  top: 4px;
+  left: 3px;
   width: 24px;
   height: 24px;
   border-radius: 50%;
