@@ -1,3 +1,4 @@
+import { ThemeToggle } from "./ThemeToggle";
 import styles from "./TopBar.module.css";
 
 export interface TopBarProps {
@@ -33,6 +34,7 @@ export function TopBar({ sections, activeSection, onSelectSection, breadcrumb }:
           </span>
         ))}
       </div>
+      <ThemeToggle />
     </header>
   );
 }
