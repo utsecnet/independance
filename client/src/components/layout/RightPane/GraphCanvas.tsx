@@ -17,6 +17,8 @@ export function GraphCanvas() {
   const onConnect = useGraphStore((s) => s.onConnect);
   const onNodesDelete = useGraphStore((s) => s.onNodesDelete);
   const onEdgesDelete = useGraphStore((s) => s.onEdgesDelete);
+  const onNodeDragStart = useGraphStore((s) => s.onNodeDragStart);
+  const onNodeDrag = useGraphStore((s) => s.onNodeDrag);
   const onNodeDragStop = useGraphStore((s) => s.onNodeDragStop);
   const selectNode = useGraphStore((s) => s.selectNode);
 
@@ -57,6 +59,8 @@ export function GraphCanvas() {
         onConnect={onConnect}
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
+        onNodeDragStart={(_, node) => onNodeDragStart(node.id, node.position)}
+        onNodeDrag={(_, node) => onNodeDrag(node.id, node.position)}
         onNodeDragStop={(_, node) => onNodeDragStop(node.id, node.position)}
         onNodeClick={(_, node) => selectNode(node.id)}
         onPaneClick={() => selectNode(null)}

@@ -1,4 +1,5 @@
 .card {
+  position: relative;
   min-width: 160px;
   padding: 10px 14px;
   border-radius: 10px;
@@ -12,6 +13,38 @@
 .card.selected {
   border-color: var(--accent-cyan);
   box-shadow: 0 0 0 2px var(--accent-cyan-dim);
+}
+
+.dropHint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  z-index: 10;
+}
+
+.dropHintTop {
+  top: 0;
+  border-radius: 10px 10px 0 0;
+  background: var(--status-review-bg);
+  color: var(--status-review-fg);
+  box-shadow: inset 0 0 0 2px var(--accent-magenta);
+}
+
+.dropHintBottom {
+  bottom: 0;
+  border-radius: 0 0 10px 10px;
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+  box-shadow: inset 0 0 0 2px var(--accent-cyan);
 }
 
 .typeLabel {
