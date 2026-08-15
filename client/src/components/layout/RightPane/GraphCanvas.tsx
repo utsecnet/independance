@@ -43,6 +43,40 @@ export function GraphCanvas() {
     rfInstance.fitView({ nodes: [{ id: selectedId }], duration: 400, maxZoom: 1.2 });
   }, [rfInstance, selectedId]);
 
+  // React Flow's deleteKeyCode only removes nodes it considers internally
+  // "selected" (node.selected), which requires a selection NodeChange to
+  // have gone through onNodesChange — but our nodes never get that flag set
+  // (clicking a tile drives its own selectedId/expand state directly via
+  // onNodeClick, never a real RF selection change), so Delete silently did
+  // nothing for tiles even though it already worked for edges via RF's own
+  // mechanism. Handling it ourselves off the same selectedId that already
+  // drives which tile is expanded keeps this in sync by construction. Uses
+  // deleteNode (not onNodesDelete) since onNodesDelete only makes the API
+  // call and expects RF's own remove-NodeChange dispatch to strip the node
+  // from local state — a step that only happens inside RF's internal
+  // delete flow, not when called directly like this.
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Delete") return;
+      const active = document.activeElement;
+      const isEditableFocused =
+        active instanceof HTMLElement &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.tagName === "SELECT" ||
+          active.isContentEditable);
+      if (isEditableFocused) return;
+
+      const state = useGraphStore.getState();
+      if (state.selectedId) {
+        state.deleteNode(state.selectedId);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   // Plain scroll still zooms (React Flow's default). Shift+scroll pans
   // horizontally and Ctrl+scroll pans vertically instead — neither has a
   // matching built-in React Flow prop (panOnScroll only supports a single
