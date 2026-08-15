@@ -321,8 +321,13 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
   createEdge: async (sourceId, targetId, relationshipType = "depends_on") => {
     try {
-      const created = await edgesApi.create({ id: crypto.randomUUID(), sourceId, targetId, relationshipType });
-      set({ edges: [...get().edges, toRFEdge(created)] });
+      await edgesApi.create({ id: crypto.randomUUID(), sourceId, targetId, relationshipType });
+      // Re-fetch rather than append: creating a blocks/depends_on edge may
+      // have silently removed a conflicting opposite-direction edge
+      // server-side (no circular two-node dependencies), so the local list
+      // can't just be appended to — it needs to match the server exactly.
+      const edges = await edgesApi.list();
+      set({ edges: edges.map(toRFEdge) });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : "Failed to create edge" });
     }
