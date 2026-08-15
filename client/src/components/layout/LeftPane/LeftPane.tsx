@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useGraphStore } from "../../../state/store";
 import { NodeForm } from "./NodeForm";
-import { EdgeCreator } from "./EdgeCreator";
 import styles from "./LeftPane.module.css";
 
 export function LeftPane() {
@@ -46,9 +45,6 @@ export function LeftPane() {
           ))}
         </div>
       )}
-
-      <h3 className={styles.sectionHeading}>Link nodes</h3>
-      <EdgeCreator />
     </aside>
   );
 }

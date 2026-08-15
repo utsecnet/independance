@@ -87,11 +87,3 @@
   font-size: 12.5px;
   margin-bottom: 16px;
 }
-
-.sectionHeading {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-dim);
-  margin: 0 0 8px;
-}
