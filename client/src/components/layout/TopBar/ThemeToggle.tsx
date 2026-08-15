@@ -3,13 +3,29 @@ import { useTheme } from "../../../theme/useTheme";
 import styles from "./TopBar.module.css";
 
 function SunIcon() {
+  const coreId = useId();
+  const flareId = useId();
+
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="4.5" />
-      <path
-        strokeLinecap="round"
-        d="M12 2.5v2.5M12 19v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M2.5 12h2.5M19 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"
-      />
+    <svg width="34" height="34" viewBox="0 0 24 24">
+      <defs>
+        {/* Same gradient-glow technique as the black hole icon, for visual
+            consistency: a warm radial core plus a soft outer flare instead
+            of a flat stroke-drawn sun. */}
+        <radialGradient id={coreId} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#fffdf0" />
+          <stop offset="35%" stopColor="#ffe497" />
+          <stop offset="70%" stopColor="#ffab3d" />
+          <stop offset="100%" stopColor="#ff8a1f" />
+        </radialGradient>
+        <radialGradient id={flareId} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#ffdd8f" stopOpacity="0.65" />
+          <stop offset="60%" stopColor="#ffb84d" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="#ffb84d" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <circle cx="12" cy="12" r="11.5" fill={`url(#${flareId})`} />
+      <circle cx="12" cy="12" r="6.4" fill={`url(#${coreId})`} />
     </svg>
   );
 }
@@ -18,7 +34,7 @@ function BlackHoleIcon() {
   const gradientId = useId();
 
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24">
+    <svg width="34" height="34" viewBox="0 0 24 24">
       <defs>
         {/* Warm accretion-disk glow: near-white core fading through gold and
             orange to transparent red, matching a gravitationally-lensed
