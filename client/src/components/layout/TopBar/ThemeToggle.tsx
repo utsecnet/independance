@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { useTheme } from "../../../theme/useTheme";
 import styles from "./TopBar.module.css";
 
@@ -14,11 +15,29 @@ function SunIcon() {
 }
 
 function BlackHoleIcon() {
+  const gradientId = useId();
+
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-      <ellipse cx="12" cy="12" rx="10.5" ry="4.2" transform="rotate(-18 12 12)" stroke="currentColor" strokeWidth="1.4" opacity="0.55" />
-      <ellipse cx="12" cy="12" rx="7.2" ry="2.8" transform="rotate(-18 12 12)" stroke="currentColor" strokeWidth="1.6" />
-      <circle cx="12" cy="12" r="4.6" fill="var(--bg)" stroke="currentColor" strokeWidth="1" />
+    <svg width="15" height="15" viewBox="0 0 24 24">
+      <defs>
+        {/* Warm accretion-disk glow: near-white core fading through gold and
+            orange to transparent red, matching a gravitationally-lensed
+            black hole's look. */}
+        <radialGradient id={gradientId} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#fff8e6" />
+          <stop offset="20%" stopColor="#ffe0a0" />
+          <stop offset="42%" stopColor="#ff9d3d" />
+          <stop offset="70%" stopColor="#e2530f" />
+          <stop offset="100%" stopColor="#e2530f" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      {/* Outer soft glow, tilted to echo the lensed disk's diagonal sweep */}
+      <ellipse cx="12" cy="12" rx="11" ry="5.4" transform="rotate(-38 12 12)" fill={`url(#${gradientId})`} opacity="0.85" />
+      {/* Inner brighter ring */}
+      <ellipse cx="12" cy="12" rx="7.6" ry="3.1" transform="rotate(-38 12 12)" fill={`url(#${gradientId})`} />
+      {/* Event horizon void + photon ring */}
+      <circle cx="12" cy="12" r="5" fill="#0a0710" />
+      <circle cx="12" cy="12" r="5" fill="none" stroke="#ffedc7" strokeWidth="0.6" opacity="0.9" />
     </svg>
   );
 }

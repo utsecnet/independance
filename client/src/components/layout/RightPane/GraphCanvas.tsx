@@ -43,6 +43,32 @@ export function GraphCanvas() {
     rfInstance.fitView({ nodes: [{ id: selectedId }], duration: 400, maxZoom: 1.2 });
   }, [rfInstance, selectedId]);
 
+  // Plain scroll still zooms (React Flow's default). Shift+scroll pans
+  // horizontally and Ctrl+scroll pans vertically instead — neither has a
+  // matching built-in React Flow prop (panOnScroll only supports a single
+  // modifier that toggles pan vs. zoom), so both are handled here directly,
+  // capturing the wheel event before it reaches React Flow's own handler.
+  useEffect(() => {
+    const paneEl = paneRef.current;
+    const instance = rfInstance;
+    if (!paneEl || !instance) return;
+
+    function handleWheel(event: WheelEvent) {
+      if (!event.shiftKey && !event.ctrlKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const { x, y, zoom } = instance!.getViewport();
+      if (event.shiftKey) {
+        instance!.setViewport({ x: x - event.deltaY, y, zoom }, { duration: 0 });
+      } else {
+        instance!.setViewport({ x, y: y - event.deltaY, zoom }, { duration: 0 });
+      }
+    }
+
+    paneEl.addEventListener("wheel", handleWheel, { passive: false, capture: true });
+    return () => paneEl.removeEventListener("wheel", handleWheel, { capture: true });
+  }, [rfInstance]);
+
   function handleCreate(type: NodeType) {
     const paneEl = paneRef.current;
     let position = { x: 0, y: 0 };
@@ -87,11 +113,20 @@ export function GraphCanvas() {
         onNodeClick={(_, node) => selectNode(node.id)}
         onPaneClick={() => selectNode(null)}
         nodeTypes={graphNodeTypes}
+        deleteKeyCode="Delete"
         fitView
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--border)" />
         <Controls />
-        <MiniMap pannable zoomable />
+        <MiniMap
+          pannable
+          zoomable
+          bgColor="var(--surface)"
+          maskColor="rgba(0, 0, 0, 0.3)"
+          nodeColor="var(--text-dim)"
+          nodeStrokeColor="var(--accent-cyan)"
+          nodeStrokeWidth={2}
+        />
       </ReactFlow>
     </div>
   );

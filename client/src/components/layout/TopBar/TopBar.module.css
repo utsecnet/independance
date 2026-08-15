@@ -45,15 +45,8 @@
   background: var(--accent-purple-dim);
 }
 
-.breadcrumb {
+.spacer {
   flex: 1;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.breadcrumbSep {
-  margin: 0 6px;
-  opacity: 0.5;
 }
 
 .themeToggle {
