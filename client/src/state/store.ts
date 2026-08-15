@@ -30,6 +30,24 @@ export interface RFEdgeData extends Record<string, unknown> {
 export type GraphRFNode = Node<RFNodeData>;
 export type GraphRFEdge = Edge<RFEdgeData>;
 
+const POSITION_SAVE_DEBOUNCE_MS = 400;
+const positionSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function schedulePositionSave(id: string, position: { x: number; y: number }, onError: (message: string) => void) {
+  const existing = positionSaveTimers.get(id);
+  if (existing) clearTimeout(existing);
+
+  positionSaveTimers.set(
+    id,
+    setTimeout(() => {
+      positionSaveTimers.delete(id);
+      nodesApi.updatePosition(id, position).catch((err: unknown) => {
+        onError(err instanceof Error ? err.message : "Failed to save node position");
+      });
+    }, POSITION_SAVE_DEBOUNCE_MS)
+  );
+}
+
 function toRFNode(node: GraphNode): GraphRFNode {
   return {
     id: node.id,
@@ -67,6 +85,7 @@ interface GraphState {
   onConnect: (connection: Connection) => Promise<void>;
   onNodesDelete: (nodes: GraphRFNode[]) => Promise<void>;
   onEdgesDelete: (edges: GraphRFEdge[]) => Promise<void>;
+  onNodeDragStop: (id: string, position: { x: number; y: number }) => void;
   selectNode: (id: string | null) => void;
 
   createNode: (input: {
@@ -141,6 +160,10 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         }
       }
     }
+  },
+
+  onNodeDragStop: (id, position) => {
+    schedulePositionSave(id, position, (message) => set({ error: message }));
   },
 
   selectNode: (id) => set({ selectedId: id }),

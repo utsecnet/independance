@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NodeMetadata, NodeStatus, NodeType } from "@independance/shared";
 import { useGraphStore, type GraphRFNode } from "../../../state/store";
+import { useDebouncedCallback } from "../../../hooks/useDebouncedCallback";
 import { MetadataFields, type MetadataFormValues } from "./MetadataFields";
 import styles from "./NodeForm.module.css";
+
+const AUTOSAVE_DEBOUNCE_MS = 500;
 
 const STATUS_OPTIONS: NodeStatus[] = ["not_started", "in_progress", "blocked", "complete"];
 const TYPE_OPTIONS: NodeType[] = ["task", "project", "poam"];
@@ -77,8 +80,36 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
 
   const isEditing = editingNode !== null;
+  const skipNextAutosave = useRef(true);
+
+  async function persistEdit() {
+    if (!editingNode || !title.trim()) return;
+    setSaveState("saving");
+    setError(null);
+    try {
+      const metadata = formValuesToMetadata(type, metaValues);
+      await updateNode(editingNode.id, { title, description, status, metadata });
+      setSaveState("saved");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
+      setSaveState("idle");
+    }
+  }
+
+  const debouncedAutosave = useDebouncedCallback(persistEdit, AUTOSAVE_DEBOUNCE_MS);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    if (skipNextAutosave.current) {
+      skipNextAutosave.current = false;
+      return;
+    }
+    debouncedAutosave();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, description, status, metaValues, isEditing]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -89,6 +120,7 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
       const metadata = formValuesToMetadata(type, metaValues);
       if (isEditing) {
         await updateNode(editingNode.id, { title, description, status, metadata });
+        onDone();
       } else {
         await createNode({ type, title, description, status, metadata });
         setTitle("");
@@ -96,7 +128,6 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
         setStatus("not_started");
         setMetaValues({});
       }
-      onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -150,19 +181,23 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
       </label>
       <MetadataFields type={type} values={metaValues} onChange={setMetaValues} />
       {error && <div className={styles.error}>{error}</div>}
+      {isEditing && saveState !== "idle" && !error && (
+        <div className={styles.saveStatus}>{saveState === "saving" ? "Saving…" : "Saved"}</div>
+      )}
       <div className={styles.actions}>
-        <button type="submit" className={styles.submit} disabled={submitting}>
-          {isEditing ? "Save changes" : "Create"}
-        </button>
-        {isEditing && (
+        {isEditing ? (
           <>
             <button type="button" className={styles.secondary} onClick={onDone}>
-              Cancel
+              Done
             </button>
             <button type="button" className={styles.danger} onClick={handleDelete} disabled={submitting}>
               Delete
             </button>
           </>
+        ) : (
+          <button type="submit" className={styles.submit} disabled={submitting}>
+            Create
+          </button>
         )}
       </div>
     </form>
