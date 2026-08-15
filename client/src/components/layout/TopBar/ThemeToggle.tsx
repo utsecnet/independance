@@ -13,10 +13,12 @@ function SunIcon() {
   );
 }
 
-function MoonIcon() {
+function BlackHoleIcon() {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M20.8 14.5A9 9 0 1 1 9.5 3.2a7 7 0 0 0 11.3 11.3Z" />
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+      <ellipse cx="12" cy="12" rx="10.5" ry="4.2" transform="rotate(-18 12 12)" stroke="currentColor" strokeWidth="1.4" opacity="0.55" />
+      <ellipse cx="12" cy="12" rx="7.2" ry="2.8" transform="rotate(-18 12 12)" stroke="currentColor" strokeWidth="1.6" />
+      <circle cx="12" cy="12" r="4.6" fill="var(--bg)" stroke="currentColor" strokeWidth="1" />
     </svg>
   );
 }
@@ -32,7 +34,7 @@ export function ThemeToggle() {
       title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
       aria-label="Toggle theme"
     >
-      {theme === "dark" ? <MoonIcon /> : <SunIcon />}
+      {theme === "dark" ? <BlackHoleIcon /> : <SunIcon />}
     </button>
   );
 }
