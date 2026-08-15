@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow, type ReactFlowInstance } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import type { NodeType } from "@independance/shared";
 import { useGraphStore, type GraphRFEdge, type GraphRFNode } from "../../../state/store";
+import { DEFAULT_TITLE } from "../../../constants/nodeType";
+import { defaultStatusForType } from "../../../constants/nodeStatus";
 import { graphNodeTypes } from "./nodes/GraphNodeCard";
 import { useGestures } from "./gestures/useGestures";
+import { CreateNodeButton } from "./CreateNodeButton";
 import styles from "./GraphCanvas.module.css";
+
+const NEW_NODE_OFFSET = { x: -90, y: -50 };
 
 export function GraphCanvas() {
   const nodes = useGraphStore((s) => s.nodes);
@@ -21,6 +27,7 @@ export function GraphCanvas() {
   const onNodeDrag = useGraphStore((s) => s.onNodeDrag);
   const onNodeDragStop = useGraphStore((s) => s.onNodeDragStop);
   const selectNode = useGraphStore((s) => s.selectNode);
+  const createNode = useGraphStore((s) => s.createNode);
 
   const paneRef = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance<GraphRFNode, GraphRFEdge> | null>(null);
@@ -36,17 +43,32 @@ export function GraphCanvas() {
     rfInstance.fitView({ nodes: [{ id: selectedId }], duration: 400, maxZoom: 1.2 });
   }, [rfInstance, selectedId]);
 
+  function handleCreate(type: NodeType) {
+    const paneEl = paneRef.current;
+    let position = { x: 0, y: 0 };
+    if (rfInstance && paneEl) {
+      const rect = paneEl.getBoundingClientRect();
+      const center = rfInstance.screenToFlowPosition({
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      });
+      position = { x: center.x + NEW_NODE_OFFSET.x, y: center.y + NEW_NODE_OFFSET.y };
+    }
+    createNode({ type, title: DEFAULT_TITLE[type], status: defaultStatusForType(type), position });
+  }
+
   if (status === "loading" || status === "idle") {
     return <div className={styles.pane}>Loading graph…</div>;
   }
 
   return (
     <div className={styles.pane} ref={paneRef}>
+      <CreateNodeButton onCreate={handleCreate} />
       {nodes.length === 0 && (
         <div className={styles.empty}>
           <div>
             <div className={styles.emptyTitle}>No dependency map yet</div>
-            <div>Add your first task, project, or POA&amp;M from the left to start mapping.</div>
+            <div>Click the + button in the top-left to start mapping.</div>
           </div>
         </div>
       )}

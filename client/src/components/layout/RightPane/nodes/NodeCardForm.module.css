@@ -2,9 +2,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-bottom: 18px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  width: 260px;
 }
 
 .field {
@@ -21,7 +19,7 @@
   font: inherit;
   font-size: 13px;
   color: var(--text-h);
-  background: var(--surface);
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 8px;
@@ -54,23 +52,6 @@
   margin-top: 4px;
 }
 
-.submit {
-  flex: 1;
-  background: var(--accent-cyan-dim);
-  color: var(--text-h);
-  border: 1px solid var(--accent-cyan);
-  border-radius: 6px;
-  padding: 7px 10px;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.submit:hover {
-  background: var(--accent-cyan);
-  color: var(--bg);
-}
-
 .danger {
   background: none;
   color: var(--accent-magenta);
@@ -86,6 +67,7 @@
 }
 
 .secondary {
+  flex: 1;
   background: none;
   color: var(--text-dim);
   border: 1px solid var(--border);

@@ -10,9 +10,11 @@
   font-size: 13px;
 }
 
-.card.selected {
+.card.expanded {
   border-color: var(--accent-cyan);
   box-shadow: 0 0 0 2px var(--accent-cyan-dim);
+  padding: 14px;
+  cursor: default;
 }
 
 .dropHint {

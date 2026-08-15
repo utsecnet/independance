@@ -1,0 +1,86 @@
+.wrapper {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 20;
+}
+
+.button {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-cyan-dim);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 8px;
+  color: var(--accent-cyan);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.button:hover {
+  background: var(--accent-cyan);
+  color: var(--bg);
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+}
+
+.menu {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 13px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: var(--surface);
+  color: var(--text-h);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.dotTask {
+  background: var(--accent-cyan);
+}
+
+.dotProject {
+  background: var(--accent-magenta);
+}
+
+.dotPoam {
+  background: var(--accent-purple);
+}

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { TopBar } from "./components/layout/TopBar/TopBar";
 import { LeftSubMenu } from "./components/layout/LeftSubMenu/LeftSubMenu";
-import { LeftPane } from "./components/layout/LeftPane/LeftPane";
 import { GraphCanvas } from "./components/layout/RightPane/GraphCanvas";
 import { ErrorBanner } from "./components/layout/ErrorBanner/ErrorBanner";
 import { useGraphStore } from "./state/store";
@@ -44,7 +43,6 @@ function App() {
           activeItem={activeSubItem}
           onSelectItem={setActiveSubItem}
         />
-        <LeftPane />
         <GraphCanvas />
       </div>
       <ErrorBanner />

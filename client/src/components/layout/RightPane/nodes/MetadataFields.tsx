@@ -1,5 +1,5 @@
 import type { NodeType } from "@independance/shared";
-import styles from "./NodeForm.module.css";
+import styles from "./NodeCardForm.module.css";
 
 export interface MetadataFormValues {
   assignee?: string;

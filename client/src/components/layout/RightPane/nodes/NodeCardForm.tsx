@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { NodeMetadata, NodeStatus, NodeType } from "@independance/shared";
-import { useGraphStore, type GraphRFNode } from "../../../state/store";
-import { useDebouncedCallback } from "../../../hooks/useDebouncedCallback";
-import { STATUS_LABELS, defaultStatusForType, statusOptionsForType } from "../../../constants/nodeStatus";
+import { useGraphStore, type RFNodeData } from "../../../../state/store";
+import { useDebouncedCallback } from "../../../../hooks/useDebouncedCallback";
+import { STATUS_LABELS, statusOptionsForType } from "../../../../constants/nodeStatus";
 import { MetadataFields, type MetadataFormValues } from "./MetadataFields";
-import styles from "./NodeForm.module.css";
+import styles from "./NodeCardForm.module.css";
 
 const AUTOSAVE_DEBOUNCE_MS = 500;
-
-const TYPE_OPTIONS: NodeType[] = ["task", "project", "poam"];
 
 function metadataToFormValues(type: NodeType, metadata: NodeMetadata): MetadataFormValues {
   const m = metadata as Record<string, unknown>;
@@ -61,43 +59,44 @@ function formValuesToMetadata(type: NodeType, values: MetadataFormValues): NodeM
   };
 }
 
-interface NodeFormProps {
-  editingNode: GraphRFNode | null;
-  onDone: () => void;
+interface NodeCardFormProps {
+  id: string;
+  data: RFNodeData;
+  onClose: () => void;
 }
 
-export function NodeForm({ editingNode, onDone }: NodeFormProps) {
-  const createNode = useGraphStore((s) => s.createNode);
+export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
   const updateNode = useGraphStore((s) => s.updateNode);
   const deleteNode = useGraphStore((s) => s.deleteNode);
 
-  const [type, setType] = useState<NodeType>(editingNode?.data.nodeType ?? "task");
-  const [title, setTitle] = useState(editingNode?.data.title ?? "");
-  const [description, setDescription] = useState(editingNode?.data.description ?? "");
-  const [status, setStatus] = useState<NodeStatus>(editingNode?.data.status ?? defaultStatusForType("task"));
-  const [metaValues, setMetaValues] = useState<MetadataFormValues>(
-    editingNode ? metadataToFormValues(editingNode.data.nodeType, editingNode.data.metadata) : {}
-  );
+  const type = data.nodeType;
+  const [title, setTitle] = useState(data.title);
+  const [description, setDescription] = useState(data.description ?? "");
+  const [status, setStatus] = useState<NodeStatus>(data.status);
+  const [metaValues, setMetaValues] = useState<MetadataFormValues>(metadataToFormValues(type, data.metadata));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
 
-  const isEditing = editingNode !== null;
   const skipNextAutosave = useRef(true);
-
-  function handleTypeChange(newType: NodeType) {
-    setType(newType);
-    setStatus(defaultStatusForType(newType));
-    setMetaValues({});
-  }
+  const isDirty = useRef(false);
+  // The debounce timer's own unmount cleanup just cancels the pending
+  // timeout — it never invokes the callback — so closing the card (Done,
+  // clicking away, selecting another node) before the 500ms debounce fires
+  // would silently drop the edit. This ref always holds the latest field
+  // values so a separate unmount effect below can flush them for real.
+  const latestValues = useRef({ title, description, status, metaValues });
+  latestValues.current = { title, description, status, metaValues };
 
   async function persistEdit() {
-    if (!editingNode || !title.trim()) return;
+    const { title, description, status, metaValues } = latestValues.current;
+    if (!title.trim()) return;
     setSaveState("saving");
     setError(null);
     try {
       const metadata = formValuesToMetadata(type, metaValues);
-      await updateNode(editingNode.id, { title, description, status, metadata });
+      await updateNode(id, { title, description, status, metadata });
+      isDirty.current = false;
       setSaveState("saved");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
@@ -108,45 +107,33 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
   const debouncedAutosave = useDebouncedCallback(persistEdit, AUTOSAVE_DEBOUNCE_MS);
 
   useEffect(() => {
-    if (!isEditing) return;
     if (skipNextAutosave.current) {
       skipNextAutosave.current = false;
       return;
     }
+    isDirty.current = true;
     debouncedAutosave();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, description, status, metaValues, isEditing]);
+  }, [title, description, status, metaValues]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!title.trim()) return;
-    setSubmitting(true);
-    setError(null);
-    try {
+  // Flush any unsaved edit when the card collapses, regardless of what
+  // triggered it (Done, clicking away, selecting a different node).
+  useEffect(() => {
+    return () => {
+      if (!isDirty.current) return;
+      const { title, description, status, metaValues } = latestValues.current;
+      if (!title.trim()) return;
       const metadata = formValuesToMetadata(type, metaValues);
-      if (isEditing) {
-        await updateNode(editingNode.id, { title, description, status, metadata });
-        onDone();
-      } else {
-        await createNode({ type, title, description, status, metadata });
-        setTitle("");
-        setDescription("");
-        setStatus(defaultStatusForType(type));
-        setMetaValues({});
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setSubmitting(false);
-    }
-  }
+      updateNode(id, { title, description, status, metadata }).catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleDelete() {
-    if (!editingNode) return;
+    isDirty.current = false;
     setSubmitting(true);
     try {
-      await deleteNode(editingNode.id);
-      onDone();
+      await deleteNode(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete");
       setSubmitting(false);
@@ -154,22 +141,12 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
   }
 
   return (
-    <form className={styles.form} onSubmit={handleSubmit}>
+    <form
+      className={`${styles.form} nodrag`}
+      onClick={(e) => e.stopPropagation()}
+      onSubmit={(e) => e.preventDefault()}
+    >
       <div className={styles.row}>
-        <label className={styles.field}>
-          <span>Type</span>
-          <select
-            value={type}
-            onChange={(e) => handleTypeChange(e.target.value as NodeType)}
-            disabled={isEditing}
-          >
-            {TYPE_OPTIONS.map((t) => (
-              <option key={t} value={t}>
-                {t === "poam" ? "POA&M" : t[0].toUpperCase() + t.slice(1)}
-              </option>
-            ))}
-          </select>
-        </label>
         <label className={styles.field}>
           <span>Status</span>
           <select value={status} onChange={(e) => setStatus(e.target.value as NodeStatus)}>
@@ -191,24 +168,16 @@ export function NodeForm({ editingNode, onDone }: NodeFormProps) {
       </label>
       <MetadataFields type={type} values={metaValues} onChange={setMetaValues} />
       {error && <div className={styles.error}>{error}</div>}
-      {isEditing && saveState !== "idle" && !error && (
+      {saveState !== "idle" && !error && (
         <div className={styles.saveStatus}>{saveState === "saving" ? "Saving…" : "Saved"}</div>
       )}
       <div className={styles.actions}>
-        {isEditing ? (
-          <>
-            <button type="button" className={styles.secondary} onClick={onDone}>
-              Done
-            </button>
-            <button type="button" className={styles.danger} onClick={handleDelete} disabled={submitting}>
-              Delete
-            </button>
-          </>
-        ) : (
-          <button type="submit" className={styles.submit} disabled={submitting}>
-            Create
-          </button>
-        )}
+        <button type="button" className={styles.secondary} onClick={onClose}>
+          Done
+        </button>
+        <button type="button" className={styles.danger} onClick={handleDelete} disabled={submitting}>
+          Delete
+        </button>
       </div>
     </form>
   );
