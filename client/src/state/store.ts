@@ -63,8 +63,8 @@ function nodeRect(node: GraphRFNode) {
 /**
  * Finds which node (if any) the dragged node currently overlaps most, and
  * whether the dragged node's center sits over that target's top or bottom
- * half — hovering the top half means "dragged blocks target", hovering the
- * bottom half means "dragged is blocked by (depends on) target".
+ * half — hovering the bottom half means "dragged blocks target", hovering
+ * the top half means "dragged is blocked by (depends on) target".
  */
 export function findDropTarget(
   draggedId: string,
@@ -257,7 +257,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
 
     const target = findDropTarget(id, position, get().nodes);
     if (target && session) {
-      const relationshipType: RelationshipType = target.half === "top" ? "blocks" : "depends_on";
+      const relationshipType: RelationshipType = target.half === "bottom" ? "blocks" : "depends_on";
       get().createEdge(id, target.id, relationshipType);
       const finalPosition = session.startPosition;
       set({ nodes: get().nodes.map((n) => (n.id === id ? { ...n, position: finalPosition } : n)) });

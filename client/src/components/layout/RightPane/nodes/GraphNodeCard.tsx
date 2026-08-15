@@ -14,8 +14,8 @@ export function GraphNodeCard({ id, data, selected }: NodeProps<GraphRFNode>) {
 
   return (
     <div className={`${styles.card} ${styles[data.nodeType]} ${selected ? styles.selected : ""}`}>
-      {dropHover === "top" && <div className={`${styles.dropHint} ${styles.dropHintTop}`}>blocks this</div>}
-      {dropHover === "bottom" && <div className={`${styles.dropHint} ${styles.dropHintBottom}`}>blocked by this</div>}
+      {dropHover === "top" && <div className={`${styles.dropHint} ${styles.dropHintTop}`}>blocked by this</div>}
+      {dropHover === "bottom" && <div className={`${styles.dropHint} ${styles.dropHintBottom}`}>blocks this</div>}
       <Handle type="target" position={Position.Top} className={styles.handle} />
       <div className={styles.typeLabel}>{TYPE_LABEL[data.nodeType]}</div>
       <div className={styles.title}>{data.title}</div>
