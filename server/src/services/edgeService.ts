@@ -3,7 +3,7 @@ import * as edgeQueries from "../db/queries/edges.js";
 import { getNodeOrThrow } from "./nodeService.js";
 import { HttpError } from "../middleware/errorHandler.js";
 import type { createEdgeSchema, updateEdgeSchema } from "@independance/shared";
-import type { GraphEdge, RelationshipType } from "@independance/shared";
+import type { RelationshipType } from "@independance/shared";
 import type { z } from "zod";
 
 export function listEdges(db: DatabaseSync) {
@@ -29,15 +29,32 @@ function blockingPair(
 
 const SQLITE_CONSTRAINT_UNIQUE = 2067;
 
+// relates_to has no directional meaning — A relates_to B and B relates_to A
+// describe the identical fact, so a reverse-direction edge of the same type
+// is a duplicate, not a distinct relationship. remediates is deliberately
+// excluded: "A remediates B" and "B remediates A" mean different things, so
+// both directions may legitimately coexist.
+const SYMMETRIC_RELATIONSHIP_TYPES: RelationshipType[] = ["relates_to"];
+
 export function createEdge(db: DatabaseSync, input: z.infer<typeof createEdgeSchema>) {
   getNodeOrThrow(db, input.sourceId);
   getNodeOrThrow(db, input.targetId);
 
   const newPair = blockingPair(input);
   if (newPair) {
-    for (const edge of edgeQueries.listEdges(db) as GraphEdge[]) {
+    for (const edge of edgeQueries.getEdgesBetween(db, input.sourceId, input.targetId)) {
       const existingPair = blockingPair(edge);
       if (existingPair && existingPair.blockerId === newPair.blockedId && existingPair.blockedId === newPair.blockerId) {
+        edgeQueries.deleteEdge(db, edge.id);
+      }
+    }
+  } else if (SYMMETRIC_RELATIONSHIP_TYPES.includes(input.relationshipType)) {
+    for (const edge of edgeQueries.getEdgesBetween(db, input.sourceId, input.targetId)) {
+      if (
+        edge.relationshipType === input.relationshipType &&
+        edge.sourceId === input.targetId &&
+        edge.targetId === input.sourceId
+      ) {
         edgeQueries.deleteEdge(db, edge.id);
       }
     }

@@ -69,6 +69,23 @@
   color-scheme: light;
 }
 
+/* POA&M severity colors are deliberately fixed (not per-theme) — a
+   traffic-light-style scale should read the same regardless of light/dark
+   mode, the same way the literal colors on a physical risk chart don't
+   change with the room lighting. */
+:root {
+  --severity-very-high-bg: #8b0000;
+  --severity-very-high-fg: #ffffff;
+  --severity-high-bg: #d32f2f;
+  --severity-high-fg: #000000;
+  --severity-moderate-bg: #f57c00;
+  --severity-moderate-fg: #000000;
+  --severity-low-bg: #fbc02d;
+  --severity-low-fg: #000000;
+  --severity-very-low-bg: #43a047;
+  --severity-very-low-fg: #000000;
+}
+
 * {
   box-sizing: border-box;
 }

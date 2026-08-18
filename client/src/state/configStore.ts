@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import type { AppSettings, NodeStatusConfig, NodeTypeConfig } from "@independance/shared";
-import { DEFAULT_LINK_ORIENTATION, DEFAULT_TILE_FIELDS } from "@independance/shared";
 import { nodeTypesApi, type CreateNodeTypePayload, type UpdateNodeTypePayload } from "../api/nodeTypes";
 import { statusesApi, type CreateStatusPayload, type UpdateStatusPayload } from "../api/statuses";
 import { appSettingsApi, type UpdateAppSettingsPayload } from "../api/appSettings";
@@ -9,7 +8,8 @@ interface ConfigState {
   nodeTypes: NodeTypeConfig[];
   statuses: NodeStatusConfig[];
   tileFields: AppSettings["tileFields"];
-  linkOrientation: AppSettings["linkOrientation"];
+  theme: AppSettings["theme"];
+  placementMode: AppSettings["placementMode"];
   status: "idle" | "loading" | "ready" | "error";
   error: string | null;
 
@@ -30,8 +30,9 @@ interface ConfigState {
 export const useConfigStore = create<ConfigState>((set, get) => ({
   nodeTypes: [],
   statuses: [],
-  tileFields: DEFAULT_TILE_FIELDS,
-  linkOrientation: DEFAULT_LINK_ORIENTATION,
+  tileFields: {},
+  theme: undefined,
+  placementMode: undefined,
   status: "idle",
   error: null,
 
@@ -43,13 +44,16 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     } catch (err) {
       set({ status: "error", error: err instanceof Error ? err.message : "Failed to load settings" });
     }
-    get().loadAppSettings();
+    // Awaited (not fire-and-forget) — callers such as App's startup
+    // sequence rely on theme/placementMode being populated by the time
+    // loadConfig's own promise resolves.
+    await get().loadAppSettings();
   },
 
   loadAppSettings: async () => {
     try {
       const settings = await appSettingsApi.get();
-      set({ tileFields: settings.tileFields, linkOrientation: settings.linkOrientation });
+      set({ tileFields: settings.tileFields, theme: settings.theme, placementMode: settings.placementMode });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : "Failed to load appearance settings" });
     }
@@ -58,7 +62,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   updateAppSettings: async (payload) => {
     try {
       const settings = await appSettingsApi.update(payload);
-      set({ tileFields: settings.tileFields, linkOrientation: settings.linkOrientation });
+      set({ tileFields: settings.tileFields, theme: settings.theme, placementMode: settings.placementMode });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : "Failed to update appearance settings" });
     }
@@ -91,6 +95,13 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         nodeTypes: get().nodeTypes.filter((t) => t.id !== id),
         statuses: get().statuses.filter((s) => s.typeId !== id),
       });
+      // tileFields is keyed by type id — drop the deleted type's entry so it
+      // doesn't linger in app_settings and get inherited if a future type
+      // ever reuses this id.
+      if (id in get().tileFields) {
+        const { [id]: _removed, ...rest } = get().tileFields;
+        await get().updateAppSettings({ tileFields: rest });
+      }
     } catch (err) {
       set({ error: err instanceof Error ? err.message : "Failed to delete type" });
     }

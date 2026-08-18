@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
-import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
-import { TILE_FIELD_DEFS, TILE_FIELD_IDS, type TileFieldId } from "@independance/shared";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { DEFAULT_TILE_FIELDS, TILE_FIELD_DEFS, TILE_FIELD_IDS, type TileFieldId } from "@independance/shared";
 import { useGraphStore, type GraphRFNode, type RFNodeData } from "../../../../state/store";
 import { useConfigStore } from "../../../../state/configStore";
+import { useDragLinkStore } from "../../../../state/dragLinkStore";
+import { SEVERITY_LABELS } from "../../../../constants/severity";
 import { NodeCardForm } from "./NodeCardForm";
 import { QuickAddButton } from "./QuickAddButton";
 import styles from "./GraphNodeCard.module.css";
@@ -19,14 +21,6 @@ const KNOWN_STATUS_CLASSES = new Set([
   "issm_review",
 ]);
 
-const SEVERITY_LABELS: Record<string, string> = {
-  very_high: "Very High",
-  high: "High",
-  moderate: "Moderate",
-  low: "Low",
-  very_low: "Very Low",
-};
-
 /** Stable hue from a status value, for statuses with no pre-authored CSS class. */
 function fallbackStatusStyle(value: string): { backgroundColor: string; color: string } {
   let hash = 0;
@@ -40,97 +34,129 @@ function formatExtraFieldValue(fieldId: TileFieldId, data: RFNodeData): string |
   const raw = (data.metadata as Record<string, unknown>)[fieldId];
   if (raw === undefined || raw === null || raw === "") return null;
   if (Array.isArray(raw)) return raw.length ? raw.join(", ") : null;
-  if (fieldId === "severity" && typeof raw === "string") return SEVERITY_LABELS[raw] ?? raw;
   if (fieldId === "estimateHours") return `${raw} hrs`;
   return String(raw);
 }
 
 export function GraphNodeCard({ id, data }: NodeProps<GraphRFNode>) {
-  const dropHover = useGraphStore((s) => (s.dropHover?.targetId === id ? s.dropHover.half : null));
+  const dropHover = useDragLinkStore((s) => (s.dropHover?.targetId === id ? s.dropHover.half : null));
   const isExpanded = useGraphStore((s) => s.selectedId === id);
   const selectNode = useGraphStore((s) => s.selectNode);
   const typeConfig = useConfigStore((s) => s.nodeTypes.find((t) => t.id === data.nodeType));
   const statusConfig = useConfigStore((s) =>
     s.statuses.find((st) => st.typeId === data.nodeType && st.value === data.status)
   );
-  const tileFields = useConfigStore((s) => s.tileFields);
-  const horizontal = useConfigStore((s) => s.linkOrientation === "horizontal");
-
-  // React Flow only re-measures a node's handle positions (`internals.
-  // handleBounds`, used to route edges) via ResizeObserver, which fires on
-  // size changes — not when the *set* of rendered handles changes at the
-  // same overall size, as happens here when `horizontal` flips and this
-  // card swaps its top/bottom Handle elements for left/right ones (or vice
-  // versa). Left alone, RF keeps routing edges against the old handle ids
-  // forever and logs "Couldn't create edge for source handle id" — this
-  // explicitly tells it to re-measure whenever the rendered handle set
-  // changes for this node.
-  const updateNodeInternals = useUpdateNodeInternals();
-  useEffect(() => {
-    updateNodeInternals(id);
-  }, [id, horizontal, updateNodeInternals]);
+  // Selected fields are per node type (see AppSettings.tileFields) so a
+  // type with nothing chosen yet falls back to the same type/status
+  // defaults every tile used to show unconditionally, rather than nothing.
+  const tileFields = useConfigStore((s) => s.tileFields[data.nodeType] ?? DEFAULT_TILE_FIELDS);
 
   const [hovered, setHovered] = useState(false);
+  // The quick-add buttons render outside the card's own box (clear of the
+  // connection handles at its edges — see QuickAddButton), so the mouse has
+  // to cross a small gap of "nothing" to reach one. Hiding on mouseleave
+  // immediately closed that window before the pointer got there; a short
+  // grace period gives it time to arrive without leaving the buttons
+  // lingering indefinitely once the pointer is genuinely elsewhere.
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
+  }, []);
+
+  function handleMouseEnter() {
+    if (hideTimer.current) {
+      clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+    setHovered(true);
+  }
+
+  function handleMouseLeave() {
+    hideTimer.current = setTimeout(() => {
+      setHovered(false);
+      hideTimer.current = null;
+    }, 400);
+  }
 
   const knownStatusClass = KNOWN_STATUS_CLASSES.has(data.status) ? styles[`status-${data.status}`] : undefined;
 
+  // Type and Status are selectable like any other field (see
+  // TILE_FIELD_DEFS) but, unlike the rest, come from top-level node data
+  // rather than data.metadata — rendered directly below instead of going
+  // through formatExtraFieldValue's generic metadata lookup, so they're
+  // excluded here to avoid also showing up as a bogus blank extra row.
+  const showType = tileFields.includes("type");
+  const showStatus = tileFields.includes("status");
+
+  // Severity gets its own colored badge (like Status) rather than going
+  // through the generic extraFields text row below, so the fixed
+  // very_high..very_low color scale (see theme.css) is always visible
+  // whenever a user has chosen to show it — not just readable as text.
+  const showSeverity = tileFields.includes("severity");
+  const severityRaw = (data.metadata as Record<string, unknown>).severity;
+  const severityValue = typeof severityRaw === "string" && severityRaw ? severityRaw : null;
+  const severityClass = severityValue ? styles[`severity-${severityValue}`] : undefined;
+
   // Defensively drop any stored field id that no longer exists in the
-  // registry (e.g. leftover settings from before Type/Title/Status/
-  // Description became fixed/removed) rather than rendering a bogus row.
+  // registry (e.g. leftover settings from before Title became the only
+  // fixed field) rather than rendering a bogus row.
   const extraFields = tileFields
-    .filter((f) => (TILE_FIELD_IDS as readonly string[]).includes(f))
+    .filter((f) => f !== "type" && f !== "status" && f !== "severity" && (TILE_FIELD_IDS as readonly string[]).includes(f))
     .map((f) => ({ id: f, label: TILE_FIELD_DEFS.find((def) => def.id === f)?.label ?? f, value: formatExtraFieldValue(f, data) }))
     .filter((f) => f.value !== null);
 
   return (
     <div
       className={`${styles.card} ${isExpanded ? styles.expanded : ""}`}
-      style={{ borderLeftColor: typeConfig?.color ?? "var(--border)" }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      style={
+        {
+          borderLeftColor: typeConfig?.color ?? "var(--border)",
+          // Drives the card's background tint below — a CSS custom property
+          // rather than computing the tinted color here in JS so it can be
+          // mixed with `--surface` via color-mix(), which already accounts
+          // for whichever theme (light/dark) is active instead of this
+          // component needing to know or duplicate that.
+          "--type-color": typeConfig?.color,
+        } as CSSProperties
+      }
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
-      {horizontal ? (
-        <>
-          {dropHover === "left" && <div className={`${styles.dropHint} ${styles.dropHintLeft}`}>blocks this</div>}
-          {dropHover === "right" && (
-            <div className={`${styles.dropHint} ${styles.dropHintRight}`}>blocked by this</div>
-          )}
-          {/* Both left and right carry a source AND a target handle, stacked at
-              the same spot, so an edge can visually flow either direction
-              depending on what it means (see handlesForRelationship in store.ts). */}
-          <Handle type="target" position={Position.Left} id="left-target" className={styles.handle} />
-          <Handle type="source" position={Position.Left} id="left-source" className={styles.handle} />
-          {!isExpanded && (
-            <QuickAddButton nodeId={id} axis="left" hoveredBlocksNew={false} visible={hovered} />
-          )}
-        </>
-      ) : (
-        <>
-          {dropHover === "top" && <div className={`${styles.dropHint} ${styles.dropHintTop}`}>blocked by this</div>}
-          {dropHover === "bottom" && <div className={`${styles.dropHint} ${styles.dropHintBottom}`}>blocks this</div>}
-          {/* Both top and bottom carry a source AND a target handle, stacked at
-              the same spot, so an edge can visually flow either direction
-              depending on what it means (see handlesForRelationship in store.ts). */}
-          <Handle type="target" position={Position.Top} id="top-target" className={styles.handle} />
-          <Handle type="source" position={Position.Top} id="top-source" className={styles.handle} />
-          {!isExpanded && (
-            <QuickAddButton nodeId={id} axis="top" hoveredBlocksNew={true} visible={hovered} />
-          )}
-        </>
-      )}
+      {/* Manual-mode drag-onto-tile gesture: dropping a dragged tile on this
+          tile's left half means the dragged tile blocks this one; dropping
+          on the right half means the dragged tile is blocked by this one
+          (see GraphCanvas's handleNodeDragStop for the commit logic). */}
+      {dropHover === "left" && <div className={`${styles.dropHint} ${styles.dropHintLeft}`}>blocks this</div>}
+      {dropHover === "right" && <div className={`${styles.dropHint} ${styles.dropHintRight}`}>blocked by this</div>}
+      {/* Both left and right carry a source AND a target handle, stacked at
+          the same spot, so an edge can visually flow either direction
+          depending on what it means (see handlesForRelationship in store.ts). */}
+      <Handle type="target" position={Position.Left} id="left-target" className={styles.handle} />
+      <Handle type="source" position={Position.Left} id="left-source" className={styles.handle} />
+      {!isExpanded && <QuickAddButton nodeId={id} axis="left" hoveredBlocksNew={false} visible={hovered} />}
 
       {isExpanded ? (
         <NodeCardForm id={id} data={data} onClose={() => selectNode(null)} />
       ) : (
         <>
-          <div className={styles.typeLabel}>{typeConfig?.label ?? data.nodeType}</div>
+          {showType && <div className={styles.typeLabel}>{typeConfig?.label ?? data.nodeType}</div>}
           <div className={styles.title}>{data.title}</div>
-          <div
-            className={`${styles.status} ${knownStatusClass ?? ""}`}
-            style={knownStatusClass ? undefined : fallbackStatusStyle(data.status)}
-          >
-            {statusConfig?.label ?? data.status}
-          </div>
+          {showStatus && (
+            <div
+              className={`${styles.status} ${knownStatusClass ?? ""}`}
+              style={knownStatusClass ? undefined : fallbackStatusStyle(data.status)}
+            >
+              {statusConfig?.label ?? data.status}
+            </div>
+          )}
+          {showSeverity && severityValue && (
+            <div className={`${styles.severity} ${severityClass ?? ""}`}>
+              {SEVERITY_LABELS[severityValue] ?? severityValue}
+            </div>
+          )}
           {extraFields.map((f) => (
             <div key={f.id} className={styles.extraField}>
               <span className={styles.extraFieldLabel}>{f.label}:</span> {f.value}
@@ -139,23 +165,9 @@ export function GraphNodeCard({ id, data }: NodeProps<GraphRFNode>) {
         </>
       )}
 
-      {horizontal ? (
-        <>
-          <Handle type="target" position={Position.Right} id="right-target" className={styles.handle} />
-          <Handle type="source" position={Position.Right} id="right-source" className={styles.handle} />
-          {!isExpanded && (
-            <QuickAddButton nodeId={id} axis="right" hoveredBlocksNew={true} visible={hovered} />
-          )}
-        </>
-      ) : (
-        <>
-          <Handle type="target" position={Position.Bottom} id="bottom-target" className={styles.handle} />
-          <Handle type="source" position={Position.Bottom} id="bottom-source" className={styles.handle} />
-          {!isExpanded && (
-            <QuickAddButton nodeId={id} axis="bottom" hoveredBlocksNew={false} visible={hovered} />
-          )}
-        </>
-      )}
+      <Handle type="target" position={Position.Right} id="right-target" className={styles.handle} />
+      <Handle type="source" position={Position.Right} id="right-source" className={styles.handle} />
+      {!isExpanded && <QuickAddButton nodeId={id} axis="right" hoveredBlocksNew={true} visible={hovered} />}
     </div>
   );
 }

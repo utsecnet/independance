@@ -1,47 +1,178 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow, type ReactFlowInstance } from "@xyflow/react";
+import {
+  Background,
+  BackgroundVariant,
+  Controls,
+  MiniMap,
+  ReactFlow,
+  type OnNodeDrag,
+  type ReactFlowInstance,
+} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { NodeType } from "@independance/shared";
 import { handlesForRelationship, useGraphStore, type GraphRFEdge, type GraphRFNode } from "../../../state/store";
+import { CROSS_STEP, DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH, DOT_GRID_SIZE, MAIN_STEP } from "../../../state/layout";
 import { useConfigStore } from "../../../state/configStore";
+import { useFilterStore } from "../../../state/filterStore";
+import { useDragLinkStore, type DropHalf } from "../../../state/dragLinkStore";
 import { graphNodeTypes } from "./nodes/GraphNodeCard";
 import { useGestures } from "./gestures/useGestures";
 import { CreateNodeButton } from "./CreateNodeButton";
 import { ExportButton } from "./ExportButton";
-import { OrientationToggle } from "./OrientationToggle";
+import { FilterMenu } from "./FilterMenu";
+import { PlacementModeToggle } from "./PlacementModeToggle";
 import styles from "./GraphCanvas.module.css";
 
-const NEW_NODE_OFFSET = { x: -90, y: -50 };
+/**
+ * Applies the map filter (see filterStore) to what's actually rendered,
+ * without touching the underlying graph or its layout — a hidden node's
+ * position is preserved exactly, so re-enabling its type/severity brings it
+ * straight back where it was. An edge is only shown when both of its
+ * endpoints are visible; a dangling edge to a hidden node would be
+ * meaningless (and React Flow errors on an edge referencing a node it
+ * doesn't have).
+ */
+export function filterGraphForDisplay(
+  nodes: GraphRFNode[],
+  edges: GraphRFEdge[],
+  hiddenTypeIds: Set<string>,
+  hiddenSeverities: Set<string>
+): { nodes: GraphRFNode[]; edges: GraphRFEdge[] } {
+  if (hiddenTypeIds.size === 0 && hiddenSeverities.size === 0) return { nodes, edges };
+
+  const visibleNodes = nodes.filter((n) => {
+    if (hiddenTypeIds.has(n.data.nodeType)) return false;
+    const severity = (n.data.metadata as Record<string, unknown>).severity;
+    if (typeof severity === "string" && hiddenSeverities.has(severity)) return false;
+    return true;
+  });
+
+  if (visibleNodes.length === nodes.length) return { nodes, edges };
+
+  const visibleIds = new Set(visibleNodes.map((n) => n.id));
+  const visibleEdges = edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));
+  return { nodes: visibleNodes, edges: visibleEdges };
+}
+
+// A dropped tile's vertical center snaps to the *nearest already-placed
+// tile's* center — not to a fixed row grid measured from y = 0 — because
+// row positions in this graph aren't actually evenly spaced multiples of
+// CROSS_STEP from a shared origin: arrangeNodes centers a tile between
+// several blockers by averaging their rows, which routinely lands on a
+// fraction of CROSS_STEP. Rounding to the nearest multiple of CROSS_STEP
+// from 0 would then snap a drop to a row nothing is actually on. Aligning
+// to whatever's already there — which is what actually keeps a connecting
+// line horizontal — is correct regardless of how that neighbor got its
+// row. Only falls back to the fixed grid when there's nothing nearby to
+// align to at all (an empty area of the canvas, or an empty graph).
+const ROW_SNAP_RADIUS = CROSS_STEP;
+
+export function snapToCenterGrid(
+  position: { x: number; y: number },
+  height: number,
+  neighborCenterYs: number[]
+): { x: number; y: number } {
+  const x = MAIN_STEP * Math.round(position.x / MAIN_STEP);
+  const centerY = position.y + height / 2;
+
+  let nearest: number | null = null;
+  let nearestDist = Infinity;
+  for (const candidate of neighborCenterYs) {
+    const dist = Math.abs(candidate - centerY);
+    if (dist < nearestDist) {
+      nearest = candidate;
+      nearestDist = dist;
+    }
+  }
+
+  const snappedCenterY =
+    nearest !== null && nearestDist <= ROW_SNAP_RADIUS ? nearest : CROSS_STEP * Math.round(centerY / CROSS_STEP);
+  return { x, y: snappedCenterY - height / 2 };
+}
+
+/**
+ * snapToCenterGrid deliberately snaps to the nearest *existing* tile's row
+ * for clean alignment, regardless of which column that tile is in — but it
+ * has no notion of "and that row is already occupied by something in my own
+ * column," so a tile dragged to hover near another one's row (in the same
+ * column) could land exactly on top of it instead of next to it. Walks the
+ * snapped position away from any same-column tile it still overlaps, one
+ * row at a time, continuing in whichever direction it was already on
+ * relative to that tile (preserving "I dropped it above" vs "below") until
+ * clear of every same-column neighbor.
+ */
+export function avoidRowCollision(
+  position: { x: number; y: number },
+  height: number,
+  others: { x: number; y: number; height: number }[]
+): { x: number; y: number } {
+  const sameColumn = others.filter((o) => Math.abs(o.x - position.x) < 1);
+  let y = position.y;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const o of sameColumn) {
+      const centerDist = Math.abs(y + height / 2 - (o.y + o.height / 2));
+      if (centerDist < CROSS_STEP - 1e-6) {
+        const direction = y <= o.y ? -1 : 1;
+        y = o.y + direction * CROSS_STEP;
+        changed = true;
+      }
+    }
+  }
+  return { x: position.x, y };
+}
+
+/**
+ * Which half of `targetRect` the dragged tile's center currently sits over
+ * — left means "dragged blocks target" (the dragged tile ends up to the
+ * target's left, matching the "A left of B, A blocks B" convention this
+ * graph already draws chains in), right means "dragged is blocked by
+ * (depends on) target".
+ */
+export function halfForDrop(
+  draggedRect: { x: number; y: number; width: number; height: number },
+  targetRect: { x: number; width: number }
+): DropHalf {
+  const draggedCenterX = draggedRect.x + draggedRect.width / 2;
+  const targetMidX = targetRect.x + targetRect.width / 2;
+  return draggedCenterX < targetMidX ? "left" : "right";
+}
 
 export function GraphCanvas() {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const status = useGraphStore((s) => s.status);
   const selectedId = useGraphStore((s) => s.selectedId);
-  const loadGraph = useGraphStore((s) => s.loadGraph);
+  const placementMode = useGraphStore((s) => s.placementMode);
   const onNodesChange = useGraphStore((s) => s.onNodesChange);
   const onEdgesChange = useGraphStore((s) => s.onEdgesChange);
   const onConnect = useGraphStore((s) => s.onConnect);
   const onNodesDelete = useGraphStore((s) => s.onNodesDelete);
   const onEdgesDelete = useGraphStore((s) => s.onEdgesDelete);
-  const onNodeDragStart = useGraphStore((s) => s.onNodeDragStart);
-  const onNodeDrag = useGraphStore((s) => s.onNodeDrag);
-  const onNodeDragStop = useGraphStore((s) => s.onNodeDragStop);
   const selectNode = useGraphStore((s) => s.selectNode);
   const createNode = useGraphStore((s) => s.createNode);
+  const moveNode = useGraphStore((s) => s.moveNode);
+  const createEdge = useGraphStore((s) => s.createEdge);
   const nodeTypes = useConfigStore((s) => s.nodeTypes);
-  const loadConfig = useConfigStore((s) => s.loadConfig);
-  const linkOrientation = useConfigStore((s) => s.linkOrientation);
+  const hiddenTypeIds = useFilterStore((s) => s.hiddenTypeIds);
+  const hiddenSeverities = useFilterStore((s) => s.hiddenSeverities);
+  const setDropHover = useDragLinkStore((s) => s.setDropHover);
 
   const paneRef = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance<GraphRFNode, GraphRFEdge> | null>(null);
+  // Captured at the start of a manual drag so a tile that ends up linking
+  // to another one (see handleNodeDragStop) can snap back to exactly where
+  // it started, instead of staying wherever it was dropped — linking two
+  // tiles is a distinct gesture from repositioning one, and leaving the
+  // dragged tile stacked on its new link target would look like a mistake.
+  const dragStartPosition = useRef<{ x: number; y: number } | null>(null);
 
   useGestures(paneRef.current, rfInstance);
 
-  useEffect(() => {
-    loadGraph();
-    loadConfig();
-  }, [loadGraph, loadConfig]);
+  // Initial data load (config, then graph, in that order) is kicked off
+  // once at the App level, not here — see App.tsx's bootstrap effect for
+  // why the ordering matters.
 
   // Selecting a tile expands it into a much taller card, but React Flow's
   // `measured` size for that node comes from a ResizeObserver that hasn't
@@ -64,24 +195,28 @@ export function GraphCanvas() {
   // expanded card can end up visually covered by a neighboring collapsed
   // tile. Boosting zIndex explicitly on whichever node matches `selectedId`
   // keeps the expanded card on top regardless of RF's internal state.
-  const displayNodes = useMemo(
-    () => (selectedId ? nodes.map((n) => (n.id === selectedId ? { ...n, zIndex: 1000 } : n)) : nodes),
-    [nodes, selectedId]
+  const { nodes: visibleNodes, edges: visibleEdges } = useMemo(
+    () => filterGraphForDisplay(nodes, edges, hiddenTypeIds, hiddenSeverities),
+    [nodes, edges, hiddenTypeIds, hiddenSeverities]
   );
 
-  // sourceHandle/targetHandle depend on the *current* linkOrientation
-  // setting, not whatever was active when the edge was fetched — computing
-  // them fresh here on every render (rather than baking them into the
-  // edge objects in the store) means they're always correct by
-  // construction, with no stale copy that a later orientation change could
-  // leave pointing at handle ids the node no longer renders.
+  const displayNodes = useMemo(
+    () =>
+      visibleNodes.map((n) => {
+        const zIndex = n.id === selectedId ? 1000 : undefined;
+        if (zIndex === undefined) return n;
+        return { ...n, zIndex };
+      }),
+    [visibleNodes, selectedId]
+  );
+
   const displayEdges = useMemo(
     () =>
-      edges.map((e) => ({
+      visibleEdges.map((e) => ({
         ...e,
-        ...handlesForRelationship(e.data!.relationshipType, linkOrientation),
+        ...handlesForRelationship(e.data!.relationshipType),
       })),
-    [edges, linkOrientation]
+    [visibleEdges]
   );
 
   // React Flow's deleteKeyCode only removes nodes it considers internally
@@ -98,7 +233,6 @@ export function GraphCanvas() {
   // delete flow, not when called directly like this.
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Delete") return;
       const active = document.activeElement;
       const isEditableFocused =
         active instanceof HTMLElement &&
@@ -108,9 +242,24 @@ export function GraphCanvas() {
           active.isContentEditable);
       if (isEditableFocused) return;
 
-      const state = useGraphStore.getState();
-      if (state.selectedId) {
-        state.deleteNode(state.selectedId);
+      if (event.key === "Delete") {
+        const state = useGraphStore.getState();
+        if (state.selectedId) {
+          state.deleteNode(state.selectedId);
+        }
+        return;
+      }
+
+      // Ctrl+Z / Ctrl+Y undo/redo the last create, delete, or edit — see
+      // the undo/redo actions in store.ts for what counts as one step.
+      if (event.ctrlKey && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        useGraphStore.getState().undo();
+        return;
+      }
+      if (event.ctrlKey && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        useGraphStore.getState().redo();
       }
     }
 
@@ -144,19 +293,79 @@ export function GraphCanvas() {
     return () => paneEl.removeEventListener("wheel", handleWheel, { capture: true });
   }, [rfInstance]);
 
-  function handleCreate(type: NodeType) {
-    const paneEl = paneRef.current;
-    let position = { x: 0, y: 0 };
-    if (rfInstance && paneEl) {
-      const rect = paneEl.getBoundingClientRect();
-      const center = rfInstance.screenToFlowPosition({
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-      });
-      position = { x: center.x + NEW_NODE_OFFSET.x, y: center.y + NEW_NODE_OFFSET.y };
+  // Captures where the tile was before this drag, in case it ends up
+  // linking to another tile (see handleNodeDragStop) rather than just
+  // moving — the store's own position is still the pre-drag one at this
+  // point, since RF only mutates its own internal copy during the drag.
+  const handleNodeDragStart: OnNodeDrag<GraphRFNode> = (_, node) => {
+    dragStartPosition.current = node.position;
+  };
+
+  // Manual-mode-only: while dragging a tile, find whichever other tile it's
+  // currently overlapping most and which half of it (left/right) the
+  // dragged tile's center sits over, so that tile can show the pending
+  // relationship before the drop actually creates it. getIntersectingNodes
+  // does the overlap test against React Flow's own measured node rects.
+  const handleNodeDrag: OnNodeDrag<GraphRFNode> = (_, node) => {
+    if (!rfInstance) return;
+    const target = rfInstance.getIntersectingNodes(node).filter((n) => n.id !== node.id)[0];
+    if (!target) {
+      setDropHover(null);
+      return;
     }
+    const draggedRect = { ...node.position, width: node.measured?.width ?? DEFAULT_NODE_WIDTH, height: node.measured?.height ?? DEFAULT_NODE_HEIGHT };
+    const targetRect = { x: target.position.x, width: target.measured?.width ?? DEFAULT_NODE_WIDTH };
+    setDropHover({ targetId: target.id, half: halfForDrop(draggedRect, targetRect) });
+  };
+
+  // Dropping a tile onto another one links them instead of just
+  // repositioning it — the near (left) half means the dragged tile blocks
+  // the target, the far (right) half means it's blocked by (depends on)
+  // the target — this is the "hover to connect" gesture manual mode adds
+  // on top of free dragging. A successful link snaps the dragged tile back
+  // to where it started rather than leaving it stacked on its new link
+  // target; otherwise the drop position persists as an ordinary reposition
+  // (moveNode) — either way is what makes manual mode "manual": arrangeGraph
+  // never runs, so this is the only thing that saves where a drag ends up.
+  // Re-checks intersection against the final position directly (rather than
+  // trusting the last onNodeDrag event, which only fires per animation
+  // frame) so the connect decision always matches where the tile actually
+  // ended up.
+  const handleNodeDragStop: OnNodeDrag<GraphRFNode> = (_, node) => {
+    setDropHover(null);
+    const target = rfInstance?.getIntersectingNodes(node).filter((n) => n.id !== node.id)[0];
+    if (target) {
+      const draggedRect = { ...node.position, width: node.measured?.width ?? DEFAULT_NODE_WIDTH, height: node.measured?.height ?? DEFAULT_NODE_HEIGHT };
+      const targetRect = { x: target.position.x, width: target.measured?.width ?? DEFAULT_NODE_WIDTH };
+      const half = halfForDrop(draggedRect, targetRect);
+      const relationshipType = half === "left" ? "blocks" : "depends_on";
+      createEdge(node.id, target.id, relationshipType);
+      if (dragStartPosition.current) moveNode(node.id, dragStartPosition.current);
+      return;
+    }
+
+    const height = node.measured?.height ?? DEFAULT_NODE_HEIGHT;
+    // Read every other tile's own row straight from React Flow's internal
+    // node list (rather than the store's `nodes`) since that's the copy
+    // that actually carries each one's live measured height — needed to
+    // get their true centers, not just their stored top-left `position.y`.
+    const otherNodes = (rfInstance?.getNodes() ?? []).filter((n) => n.id !== node.id);
+    const neighborCenterYs = otherNodes.map((n) => n.position.y + (n.measured?.height ?? DEFAULT_NODE_HEIGHT) / 2);
+    const snapped = snapToCenterGrid(node.position, height, neighborCenterYs);
+    const others = otherNodes.map((n) => ({
+      x: n.position.x,
+      y: n.position.y,
+      height: n.measured?.height ?? DEFAULT_NODE_HEIGHT,
+    }));
+    moveNode(node.id, avoidRowCollision(snapped, height, others));
+  };
+
+  // No position is passed here — arrangeGraph (called by createNode) places
+  // every tile on the standardized grid immediately after creation, so
+  // there's nothing useful to compute up front.
+  function handleCreate(type: NodeType) {
     const label = nodeTypes.find((t) => t.id === type)?.label ?? type;
-    createNode({ type, title: `New ${label}`, position });
+    createNode({ type, title: `New ${label}` });
   }
 
   if (status === "loading" || status === "idle") {
@@ -166,13 +375,22 @@ export function GraphCanvas() {
   return (
     <div className={styles.pane} ref={paneRef}>
       <CreateNodeButton onCreate={handleCreate} />
-      <OrientationToggle />
+      <FilterMenu />
+      <PlacementModeToggle />
       <ExportButton rfInstance={rfInstance} />
       {nodes.length === 0 && (
         <div className={styles.empty}>
           <div>
             <div className={styles.emptyTitle}>No dependency map yet</div>
             <div>Click the + button in the top-left to start mapping.</div>
+          </div>
+        </div>
+      )}
+      {nodes.length > 0 && visibleNodes.length === 0 && (
+        <div className={styles.empty}>
+          <div>
+            <div className={styles.emptyTitle}>No items match the current filter</div>
+            <div>Adjust or clear the filter to see your dependency map.</div>
           </div>
         </div>
       )}
@@ -185,16 +403,18 @@ export function GraphCanvas() {
         onConnect={onConnect}
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
-        onNodeDragStart={(_, node) => onNodeDragStart(node.id, node.position)}
-        onNodeDrag={(_, node) => onNodeDrag(node.id, node.position)}
-        onNodeDragStop={(_, node) => onNodeDragStop(node.id, node.position)}
+        onNodeDragStart={placementMode === "manual" ? handleNodeDragStart : undefined}
+        onNodeDrag={placementMode === "manual" ? handleNodeDrag : undefined}
+        onNodeDragStop={placementMode === "manual" ? handleNodeDragStop : undefined}
         onNodeClick={(_, node) => selectNode(node.id)}
         onPaneClick={() => selectNode(null)}
         nodeTypes={graphNodeTypes}
+        nodesDraggable={placementMode === "manual"}
         deleteKeyCode="Delete"
+        proOptions={{ hideAttribution: true }}
         fitView
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--border)" />
+        <Background variant={BackgroundVariant.Dots} gap={DOT_GRID_SIZE} size={1} color="var(--border)" />
         <Controls showInteractive={false} />
         <MiniMap
           pannable
@@ -206,6 +426,7 @@ export function GraphCanvas() {
           nodeStrokeWidth={2}
         />
       </ReactFlow>
+      <div className={styles.watermark}>© 2026 utsecnet. All rights reserved.</div>
     </div>
   );
 }

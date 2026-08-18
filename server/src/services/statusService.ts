@@ -10,12 +10,6 @@ export function listStatuses(db: DatabaseSync, typeId?: string) {
   return statusQueries.listStatuses(db, typeId);
 }
 
-export function getStatusOrThrow(db: DatabaseSync, id: string) {
-  const status = statusQueries.getStatus(db, id);
-  if (!status) throw new HttpError(404, "not_found", `Status ${id} not found`);
-  return status;
-}
-
 export function createStatus(db: DatabaseSync, input: z.infer<typeof createStatusSchema>) {
   if (!nodeTypeQueries.getNodeType(db, input.typeId)) {
     throw new HttpError(404, "not_found", `Node type "${input.typeId}" not found`);
@@ -31,14 +25,38 @@ export function createStatus(db: DatabaseSync, input: z.infer<typeof createStatu
 }
 
 export function updateStatus(db: DatabaseSync, id: string, input: z.infer<typeof updateStatusSchema>) {
+  const existing = statusQueries.getStatus(db, id);
+  if (!existing) throw new HttpError(404, "not_found", `Status ${id} not found`);
+  // Setting isDefault:true on some other status already clears this flag
+  // off the old one (see insertStatus/updateStatus in db/queries/statuses),
+  // so that path always leaves exactly one default. The only way to reach
+  // zero is unsetting *this* one directly without anything else taking its
+  // place — resolveStatusForType (used by every node-creation path that
+  // doesn't specify a status explicitly) would then have nothing to fall
+  // back to for this type.
+  if (input.isDefault === false && existing.isDefault) {
+    throw new HttpError(
+      409,
+      "default_status_required",
+      "Set a different status as default before unsetting this one — a type always needs one."
+    );
+  }
   const status = statusQueries.updateStatus(db, id, input);
   if (!status) throw new HttpError(404, "not_found", `Status ${id} not found`);
   return status;
 }
 
 export function deleteStatus(db: DatabaseSync, id: string) {
-  const deleted = statusQueries.deleteStatus(db, id);
-  if (!deleted) throw new HttpError(404, "not_found", `Status ${id} not found`);
+  const existing = statusQueries.getStatus(db, id);
+  if (!existing) throw new HttpError(404, "not_found", `Status ${id} not found`);
+  if (existing.isDefault) {
+    throw new HttpError(
+      409,
+      "default_status_required",
+      "Set a different status as default before deleting this one — a type always needs one."
+    );
+  }
+  statusQueries.deleteStatus(db, id);
 }
 
 /**

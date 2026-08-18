@@ -98,17 +98,23 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
   // timeout — it never invokes the callback — so closing the card (Done,
   // clicking away, selecting another node) before the 500ms debounce fires
   // would silently drop the edit. This ref always holds the latest field
-  // values so a separate unmount effect below can flush them for real.
-  const latestValues = useRef({ title, description, status, metaValues });
-  latestValues.current = { title, description, status, metaValues };
+  // values (type and data.metadata included, even though neither is
+  // editable here directly — data.metadata is read back below as the base
+  // a custom type's unedited metadata is preserved against, and if it goes
+  // stale that base reverts any change made elsewhere, e.g. by an undo,
+  // while this card sits open) so the unmount effect further down can
+  // flush them for real, using what's current at close time rather than
+  // whatever was true when the card first opened.
+  const latestValues = useRef({ title, description, status, metaValues, type, metadata: data.metadata });
+  latestValues.current = { title, description, status, metaValues, type, metadata: data.metadata };
 
   async function persistEdit() {
-    const { title, description, status, metaValues } = latestValues.current;
+    const { title, description, status, metaValues, type, metadata: baseMetadata } = latestValues.current;
     if (!title.trim()) return;
     setSaveState("saving");
     setError(null);
     try {
-      const metadata = formValuesToMetadata(type, metaValues, data.metadata);
+      const metadata = formValuesToMetadata(type, metaValues, baseMetadata);
       await updateNode(id, { title, description, status, metadata });
       isDirty.current = false;
       setSaveState("saved");
@@ -135,9 +141,9 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
   useEffect(() => {
     return () => {
       if (!isDirty.current) return;
-      const { title, description, status, metaValues } = latestValues.current;
+      const { title, description, status, metaValues, type, metadata: baseMetadata } = latestValues.current;
       if (!title.trim()) return;
-      const metadata = formValuesToMetadata(type, metaValues, data.metadata);
+      const metadata = formValuesToMetadata(type, metaValues, baseMetadata);
       updateNode(id, { title, description, status, metadata }).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

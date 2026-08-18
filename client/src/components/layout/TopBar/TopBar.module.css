@@ -55,8 +55,12 @@
 
 .knob {
   position: absolute;
+  /* Matches .themeToggle's own padding (0 3px) exactly, so the knob's
+     resting position lines up with the left icon slot's — a left:2px here
+     (not matching the 3px padding the icon slots actually sit at) left the
+     icon visibly off-center inside the knob. */
   top: 2px;
-  left: 2px;
+  left: 3px;
   width: 24px;
   height: 24px;
   border-radius: 50%;
@@ -66,5 +70,9 @@
 }
 
 .knobRight {
-  transform: translateX(34px);
+  /* Distance between the two icon slots' left edges: content-box width
+     (64 - 2*1px border - 2*3px padding = 56) minus one icon's own width
+     (24) = 32 — not the track's outer width, which is what 34px was
+     actually measuring, hence the same off-center look on this side too. */
+  transform: translateX(32px);
 }

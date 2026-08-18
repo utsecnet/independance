@@ -1,15 +1,27 @@
 import { useEffect, useState } from "react";
-import { MAX_EXTRA_TILE_FIELDS, TILE_FIELD_DEFS, type TileFieldGroup, type TileFieldId } from "@independance/shared";
+import {
+  ALWAYS_ON_TILE_FIELDS,
+  DEFAULT_TILE_FIELDS,
+  MAX_EXTRA_TILE_FIELDS,
+  RETRO_COLOR_PALETTE,
+  TILE_FIELD_DEFS,
+  type TileFieldId,
+} from "@independance/shared";
 import { useConfigStore } from "../../../state/configStore";
+import { ColorPicker } from "./ColorPicker";
 import styles from "./SettingsBlade.module.css";
 
-const TABS = ["Types & Statuses", "Appearance", "Data"];
+const TABS = ["Types & Statuses", "Appearance"];
 
-const FIELD_GROUP_ORDER: TileFieldGroup[] = ["task", "project", "poam"];
-const FIELD_GROUP_FALLBACK_LABELS: Record<TileFieldGroup, string> = {
-  task: "Task",
-  project: "Project",
-  poam: "POA&M",
+const APP_VERSION = "v2026.1.0";
+
+// Title is unconditionally rendered on every tile (see ALWAYS_ON_TILE_FIELDS)
+// rather than being part of the toggleable TILE_FIELD_DEFS list — listed
+// here purely so Appearance's field picker can show it, checked and locked,
+// alongside each type's actual selectable fields (Type and Status included)
+// for a complete picture of what's on the tile.
+const ALWAYS_ON_FIELD_LABELS: Record<(typeof ALWAYS_ON_TILE_FIELDS)[number], string> = {
+  title: "Title",
 };
 
 function slugify(label: string): string {
@@ -41,7 +53,7 @@ function TypesStatusesSettings() {
   const [expandedTypeId, setExpandedTypeId] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState("");
   const [newSlug, setNewSlug] = useState("");
-  const [newColor, setNewColor] = useState("#4dd8d0");
+  const [newColor, setNewColor] = useState<string>(RETRO_COLOR_PALETTE[0]);
   const [slugEdited, setSlugEdited] = useState(false);
   const [newStatusLabel, setNewStatusLabel] = useState("");
 
@@ -57,7 +69,7 @@ function TypesStatusesSettings() {
     setNewLabel("");
     setNewSlug("");
     setSlugEdited(false);
-    setNewColor("#4dd8d0");
+    setNewColor(RETRO_COLOR_PALETTE[0]);
   }
 
   function handleAddStatus(typeId: string) {
@@ -102,13 +114,7 @@ function TypesStatusesSettings() {
           return (
             <div key={type.id} className={styles.typeCard}>
               <div className={styles.typeRow}>
-                <input
-                  type="color"
-                  className={styles.colorInput}
-                  value={type.color}
-                  onChange={(e) => updateNodeType(type.id, { color: e.target.value })}
-                  title="Tile color"
-                />
+                <ColorPicker value={type.color} onChange={(color) => updateNodeType(type.id, { color })} />
                 <input
                   className={styles.labelInput}
                   value={type.label}
@@ -192,13 +198,7 @@ function TypesStatusesSettings() {
       <form className={styles.addTypeForm} onSubmit={handleAddType}>
         <h3 className={styles.subheading}>Add a new type</h3>
         <div className={styles.addTypeRow}>
-          <input
-            type="color"
-            className={styles.colorInput}
-            value={newColor}
-            onChange={(e) => setNewColor(e.target.value)}
-            title="Tile color"
-          />
+          <ColorPicker value={newColor} onChange={setNewColor} />
           <input
             className={styles.labelInput}
             placeholder="Label (e.g. Risk)"
@@ -224,38 +224,32 @@ function TypesStatusesSettings() {
 }
 
 function AppearanceSettings() {
-  const tileFields = useConfigStore((s) => s.tileFields);
+  const tileFieldsByType = useConfigStore((s) => s.tileFields);
   const nodeTypes = useConfigStore((s) => s.nodeTypes);
   const error = useConfigStore((s) => s.error);
   const clearError = useConfigStore((s) => s.clearError);
   const updateAppSettings = useConfigStore((s) => s.updateAppSettings);
 
-  const [expandedGroup, setExpandedGroup] = useState<TileFieldGroup | null>(null);
+  const [expandedTypeId, setExpandedTypeId] = useState<string | null>(null);
 
-  function toggleField(fieldId: TileFieldId) {
-    const isSelected = tileFields.includes(fieldId);
+  // Each type's selection lives under its own key, so toggling a field for
+  // one type only ever rewrites that type's entry — every other type's
+  // list in the record is passed through untouched.
+  function toggleField(typeId: string, fieldId: TileFieldId) {
+    const current = tileFieldsByType[typeId] ?? DEFAULT_TILE_FIELDS;
+    const isSelected = current.includes(fieldId);
     if (isSelected) {
-      updateAppSettings({ tileFields: tileFields.filter((f) => f !== fieldId) });
+      updateAppSettings({ tileFields: { ...tileFieldsByType, [typeId]: current.filter((f) => f !== fieldId) } });
     } else {
-      if (tileFields.length >= MAX_EXTRA_TILE_FIELDS) return;
-      updateAppSettings({ tileFields: [...tileFields, fieldId] });
+      if (current.length >= MAX_EXTRA_TILE_FIELDS) return;
+      updateAppSettings({ tileFields: { ...tileFieldsByType, [typeId]: [...current, fieldId] } });
     }
-  }
-
-  // "task"/"project"/"poam" group keys match those built-in types' ids, so
-  // the heading follows whatever the user has renamed that type to (e.g.
-  // Settings > Types & Statuses) instead of a hardcoded label going stale.
-  function groupLabel(group: TileFieldGroup): string {
-    return nodeTypes.find((t) => t.id === group)?.label ?? FIELD_GROUP_FALLBACK_LABELS[group];
   }
 
   return (
     <div className={styles.section}>
       <h2 className={styles.sectionTitle}>Tile</h2>
-      <p className={styles.hint}>
-        Type, Title, and Status always show on every tile. Choose up to {MAX_EXTRA_TILE_FIELDS} additional fields (
-        {tileFields.length}/{MAX_EXTRA_TILE_FIELDS} selected), grouped by which item type they apply to.
-      </p>
+      <p className={styles.hint}>Select fields you want visible on each tile</p>
 
       {error && (
         <div className={styles.error}>
@@ -267,21 +261,26 @@ function AppearanceSettings() {
       )}
 
       <div className={styles.typeList}>
-        {FIELD_GROUP_ORDER.map((group) => {
-          const fields = TILE_FIELD_DEFS.filter((field) =>
-            (field.groups as readonly TileFieldGroup[]).includes(group)
+        {nodeTypes.map((type) => {
+          const selected = tileFieldsByType[type.id] ?? DEFAULT_TILE_FIELDS;
+          // Type and Status apply the same way to every node type, so
+          // they're always offered; the rest are specific to task/project/
+          // poam's own metadata shape (a user-created type has none of its
+          // own, so it only ever gets to pick from the first two).
+          const fields = TILE_FIELD_DEFS.filter(
+            (field) =>
+              field.id === "type" || field.id === "status" || (field.groups as readonly string[]).includes(type.id)
           );
-          if (fields.length === 0) return null;
-          const selectedCount = fields.filter((field) => tileFields.includes(field.id)).length;
-          const expanded = expandedGroup === group;
+          const selectedCount = fields.filter((field) => selected.includes(field.id)).length;
+          const expanded = expandedTypeId === type.id;
           return (
-            <div key={group} className={styles.typeCard}>
+            <div key={type.id} className={styles.typeCard}>
               <div className={styles.typeRow}>
-                <span className={styles.groupLabel}>{groupLabel(group)}</span>
+                <span className={styles.groupLabel}>{type.label}</span>
                 <button
                   type="button"
                   className={styles.linkButton}
-                  onClick={() => setExpandedGroup(expanded ? null : group)}
+                  onClick={() => setExpandedTypeId(expanded ? null : type.id)}
                 >
                   {expanded ? "Hide" : "Fields"} ({selectedCount}/{fields.length})
                 </button>
@@ -290,9 +289,15 @@ function AppearanceSettings() {
               {expanded && (
                 <div className={styles.statusList}>
                   <div className={styles.fieldGrid}>
+                    {ALWAYS_ON_TILE_FIELDS.map((fieldId) => (
+                      <label key={fieldId} className={styles.fieldOption} title="Always shown on every tile">
+                        <input type="checkbox" checked disabled />
+                        {ALWAYS_ON_FIELD_LABELS[fieldId]}
+                      </label>
+                    ))}
                     {fields.map((field) => {
-                      const checked = tileFields.includes(field.id);
-                      const disabled = !checked && tileFields.length >= MAX_EXTRA_TILE_FIELDS;
+                      const checked = selected.includes(field.id);
+                      const disabled = !checked && selected.length >= MAX_EXTRA_TILE_FIELDS;
                       return (
                         <label
                           key={field.id}
@@ -302,7 +307,7 @@ function AppearanceSettings() {
                             type="checkbox"
                             checked={checked}
                             disabled={disabled}
-                            onChange={() => toggleField(field.id)}
+                            onChange={() => toggleField(type.id, field.id)}
                           />
                           {field.label}
                         </label>
@@ -358,13 +363,8 @@ export function SettingsBlade({ open, onClose }: SettingsBladeProps) {
       <div className={styles.content}>
         {activeTab === "Types & Statuses" && <TypesStatusesSettings />}
         {activeTab === "Appearance" && <AppearanceSettings />}
-        {activeTab === "Data" && (
-          <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>{activeTab}</h2>
-            <p className={styles.hint}>Nothing configurable here yet.</p>
-          </div>
-        )}
       </div>
+      <div className={styles.footer}>{APP_VERSION}</div>
     </div>
   );
 }

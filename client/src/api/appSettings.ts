@@ -3,7 +3,8 @@ import { api } from "./client";
 
 export interface UpdateAppSettingsPayload {
   tileFields?: AppSettings["tileFields"];
-  linkOrientation?: AppSettings["linkOrientation"];
+  theme?: AppSettings["theme"];
+  placementMode?: AppSettings["placementMode"];
 }
 
 export const appSettingsApi = {

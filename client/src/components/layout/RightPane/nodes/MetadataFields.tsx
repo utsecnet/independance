@@ -1,4 +1,5 @@
 import type { NodeType } from "@independance/shared";
+import { SEVERITY_LEVELS } from "../../../../constants/severity";
 import styles from "./NodeCardForm.module.css";
 
 export interface MetadataFormValues {
@@ -74,11 +75,11 @@ export function MetadataFields({ type, values, onChange }: MetadataFieldsProps) 
           <span>Severity</span>
           <select value={values.severity ?? ""} onChange={(e) => set("severity", e.target.value)}>
             <option value="">—</option>
-            <option value="very_high">Very High</option>
-            <option value="high">High</option>
-            <option value="moderate">Moderate</option>
-            <option value="low">Low</option>
-            <option value="very_low">Very Low</option>
+            {SEVERITY_LEVELS.map((level) => (
+              <option key={level.value} value={level.value}>
+                {level.label}
+              </option>
+            ))}
           </select>
         </label>
         <label className={styles.field}>

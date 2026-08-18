@@ -1,11 +1,33 @@
 .card {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  /* Matches layout.ts's DEFAULT_NODE_HEIGHT — the whole layout engine
+     positions tiles assuming every one is this tall (e.g. a plain chain's
+     single-blocker tile inherits its blocker's row by matching top y). A
+     tile that renders shorter than this because its type has fewer tile
+     fields configured (a POA&M showing only Severity vs. a Task showing
+     Type+Status, say) would otherwise sit at the same top y but a visibly
+     higher center, reading as "shifted up" against a tile beside it that's
+     actually taller. Padding every card out to the same minimum — and
+     centering its content within that — keeps a straight chain's edges and
+     box centers level regardless of which fields each tile happens to show.
+     Content that genuinely needs more room (a long title, several extra
+     fields) still grows past this, same as before. */
+  min-height: 90px;
   min-width: 160px;
   padding: 10px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
   border-left: 3px solid var(--border);
-  background: var(--surface);
+  /* A subtle wash of the type's own color (see --type-color, set inline
+     from GraphNodeCard) mixed into the normal surface color — mixing
+     against --surface rather than computing a fixed tint means this stays
+     correctly subtle in both the light and dark theme instead of one of
+     them ending up washed out or barely visible. Falls back to plain
+     --surface when there's no type color (e.g. the type was deleted). */
+  background: color-mix(in srgb, var(--type-color, var(--surface)) 14%, var(--surface));
   color: var(--text-h);
   box-shadow: var(--shadow-sm);
   font-size: 13px;
@@ -16,64 +38,6 @@
   box-shadow: 0 0 0 2px var(--accent-cyan-dim);
   padding: 14px;
   cursor: default;
-}
-
-.dropHint {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  z-index: 10;
-}
-
-.dropHintTop {
-  top: 0;
-  border-radius: 10px 10px 0 0;
-  background: var(--status-review-bg);
-  color: var(--status-review-fg);
-  box-shadow: inset 0 0 0 2px var(--accent-magenta);
-}
-
-.dropHintBottom {
-  bottom: 0;
-  border-radius: 0 0 10px 10px;
-  background: var(--accent-cyan-dim);
-  color: var(--accent-cyan);
-  box-shadow: inset 0 0 0 2px var(--accent-cyan);
-}
-
-.dropHintLeft,
-.dropHintRight {
-  top: 0;
-  bottom: 0;
-  left: auto;
-  right: auto;
-  width: 50%;
-  height: auto;
-}
-
-.dropHintLeft {
-  left: 0;
-  border-radius: 10px 0 0 10px;
-  background: var(--accent-cyan-dim);
-  color: var(--accent-cyan);
-  box-shadow: inset 0 0 0 2px var(--accent-cyan);
-}
-
-.dropHintRight {
-  right: 0;
-  border-radius: 0 10px 10px 0;
-  background: var(--status-review-bg);
-  color: var(--status-review-fg);
-  box-shadow: inset 0 0 0 2px var(--accent-magenta);
 }
 
 .typeLabel {
@@ -128,6 +92,73 @@
 .status-issm_review {
   background: var(--status-review-bg);
   color: var(--status-review-fg);
+}
+
+.severity {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-top: 4px;
+}
+
+.severity-very_high {
+  background: var(--severity-very-high-bg);
+  color: var(--severity-very-high-fg);
+}
+
+.severity-high {
+  background: var(--severity-high-bg);
+  color: var(--severity-high-fg);
+}
+
+.severity-moderate {
+  background: var(--severity-moderate-bg);
+  color: var(--severity-moderate-fg);
+}
+
+.severity-low {
+  background: var(--severity-low-bg);
+  color: var(--severity-low-fg);
+}
+
+.severity-very_low {
+  background: var(--severity-very-low-bg);
+  color: var(--severity-very-low-fg);
+}
+
+.dropHint {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: center;
+  z-index: 10;
+}
+
+.dropHintLeft {
+  left: 0;
+  border-radius: 10px 0 0 10px;
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+  box-shadow: inset 0 0 0 2px var(--accent-cyan);
+}
+
+.dropHintRight {
+  right: 0;
+  border-radius: 0 10px 10px 0;
+  background: var(--status-review-bg);
+  color: var(--status-review-fg);
+  box-shadow: inset 0 0 0 2px var(--accent-magenta);
 }
 
 .handle {

@@ -29,7 +29,7 @@ function rowToNode(row: NodeRow): GraphNode {
 }
 
 export function listNodes(db: DatabaseSync): GraphNode[] {
-  const rows = db.prepare("SELECT * FROM nodes ORDER BY created_at").all() as unknown as NodeRow[];
+  const rows = db.prepare("SELECT * FROM nodes ORDER BY created_at, id").all() as unknown as NodeRow[];
   return rows.map(rowToNode);
 }
 

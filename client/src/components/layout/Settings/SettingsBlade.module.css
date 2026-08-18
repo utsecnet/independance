@@ -83,6 +83,15 @@
   padding: 20px 24px;
 }
 
+.footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding: 8px 24px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
 .section {
   max-width: 100%;
 }
@@ -147,17 +156,6 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.colorInput {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: none;
-  cursor: pointer;
-  flex-shrink: 0;
 }
 
 .labelInput {

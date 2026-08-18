@@ -20,35 +20,32 @@ export interface NodeStatusConfig {
   isDefault: boolean;
 }
 
-export interface TaskMetadata {
-  assignee?: string;
-  estimateHours?: number;
-  dueDate?: string;
-}
+/**
+ * The only colors Settings > Types & Statuses offers for a node type's tile
+ * color — a fixed retro-synthwave palette instead of an open color picker,
+ * so every type's color (and the tile-tint it drives — see GraphNodeCard)
+ * stays visually cohesive with the app's theme, and so a future feature
+ * that needs to reason about "which color" a type is has a closed, known
+ * set to work with instead of arbitrary hex values. Not enforced by
+ * createNodeTypeSchema/updateNodeTypeSchema (those still accept any hex
+ * color) — this is a UI curation, not a data constraint, so a type colored
+ * before this existed keeps rendering fine.
+ */
+export const RETRO_COLOR_PALETTE = [
+  "#ff2e63",
+  "#b5179e",
+  "#7b2ff7",
+  "#4361ee",
+  "#4cc9f0",
+  "#06ffa5",
+  "#ffd60a",
+  "#fb5607",
+] as const;
 
-export interface ProjectMetadata {
-  owner?: string;
-  targetDate?: string;
-  tags?: string[];
-}
-
-export interface PoamMilestone {
-  id: string;
-  title: string;
-  targetDate: string;
-  status: NodeStatus;
-  completedDate?: string;
-}
-
-export interface PoamMetadata {
-  dueDate?: string;
-  severity?: "very_high" | "high" | "moderate" | "low" | "very_low";
-  controlRefs?: string[];
-  poc?: string;
-  milestones?: PoamMilestone[];
-}
-
-export type NodeMetadata = TaskMetadata | ProjectMetadata | PoamMetadata | Record<string, unknown>;
+// Metadata's actual shape is driven entirely by TILE_FIELD_DEFS/MetadataFields
+// (client-side) rather than a per-type interface here — createNodeSchema and
+// updateNodeSchema (schemas.ts) validate it with the same generic record.
+export type NodeMetadata = Record<string, unknown>;
 
 export interface GraphNode {
   id: string;
@@ -78,10 +75,12 @@ export interface GraphPayload {
 }
 
 /**
- * Type, Title, and Status always show on every tile — they aren't part of
- * the configurable field list at all, just unconditionally rendered.
+ * Title always shows on every tile — it's the one field not part of the
+ * configurable field list at all, just unconditionally rendered. Type and
+ * Status are otherwise-ordinary entries in TILE_FIELD_DEFS below (selectable
+ * like everything else), not listed here.
  */
-export const ALWAYS_ON_TILE_FIELDS = ["type", "title", "status"] as const;
+export const ALWAYS_ON_TILE_FIELDS = ["title"] as const;
 
 /**
  * A field's group says which node type(s) it's relevant to, so the
@@ -95,12 +94,16 @@ export type TileFieldGroup = "task" | "project" | "poam";
 
 /**
  * Registry of *optional* fields a tile can additionally display, on top of
- * the always-on Type/Title/Status — driving the Settings > Appearance
- * field picker. Each comes from a specific type's metadata shape (see
- * TaskMetadata/ProjectMetadata/PoamMetadata above) and simply has no value
- * to show on a node of a different type.
+ * the always-on Title — driving the Settings > Appearance field picker.
+ * Type and Status apply the same way to every node type (unlike the rest,
+ * each of which comes from one specific type's metadata shape — see
+ * TaskMetadata/ProjectMetadata/PoamMetadata above — and simply has no value
+ * to show on a node of a different type), so they're listed under all three
+ * groups rather than just one.
  */
 export const TILE_FIELD_DEFS = [
+  { id: "type", label: "Type", groups: ["task", "project", "poam"] },
+  { id: "status", label: "Status", groups: ["task", "project", "poam"] },
   { id: "assignee", label: "Assignee", groups: ["task"] },
   { id: "estimateHours", label: "Estimate (hours)", groups: ["task"] },
   { id: "dueDate", label: "Due Date", groups: ["task", "poam"] },
@@ -116,16 +119,36 @@ export type TileFieldId = (typeof TILE_FIELD_DEFS)[number]["id"];
 
 export const TILE_FIELD_IDS = TILE_FIELD_DEFS.map((f) => f.id) as TileFieldId[];
 
-/** Max *additional* fields on top of the always-on Type/Title/Status. */
+/** Max *additional* fields on top of the always-on Title. */
 export const MAX_EXTRA_TILE_FIELDS = 3;
 
-export const DEFAULT_TILE_FIELDS: TileFieldId[] = [];
+// Type and Status were unconditionally on before they became selectable —
+// falling back to this for any node type with no explicit selection yet
+// keeps a first-run tile looking the same as it always did, rather than
+// silently losing its type/status labels until someone opens Appearance and
+// re-adds them. Used both as the literal default for a type with no entry
+// in tileFields at all, and as the starting point when a type is first
+// expanded in Settings > Appearance.
+export const DEFAULT_TILE_FIELDS: TileFieldId[] = ["type", "status"];
 
-export type LinkOrientation = "vertical" | "horizontal";
+export type ThemeMode = "dark" | "light";
 
-export const DEFAULT_LINK_ORIENTATION: LinkOrientation = "vertical";
+export type PlacementMode = "auto" | "manual";
 
+/**
+ * Selected fields are per node type — each type id (built-in or
+ * user-created) maps to its own list, so toggling a field for one type
+ * (e.g. hiding Status on POA&M) never touches any other type's tiles. A
+ * type with no entry here yet falls back to DEFAULT_TILE_FIELDS rather than
+ * showing nothing.
+ *
+ * theme and placementMode are optional — absent until the user has
+ * explicitly chosen one, same convention as tileFields' per-type entries:
+ * the client falls back to its own default (OS preference for theme, "auto"
+ * for placement) rather than the server inventing one.
+ */
 export interface AppSettings {
-  tileFields: TileFieldId[];
-  linkOrientation: LinkOrientation;
+  tileFields: Record<string, TileFieldId[]>;
+  theme?: ThemeMode;
+  placementMode?: PlacementMode;
 }

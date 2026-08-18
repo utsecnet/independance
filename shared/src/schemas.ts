@@ -11,34 +11,6 @@ export const nodeTypeSchema = z.string().min(1);
 export const nodeStatusSchema = z.string().min(1);
 export const relationshipTypeSchema = z.enum(["depends_on", "blocks", "relates_to", "remediates"]);
 
-export const poamMilestoneSchema = z.object({
-  id: z.string(),
-  title: z.string().min(1),
-  targetDate: z.string(),
-  status: nodeStatusSchema,
-  completedDate: z.string().optional(),
-});
-
-export const taskMetadataSchema = z.object({
-  assignee: z.string().optional(),
-  estimateHours: z.number().nonnegative().optional(),
-  dueDate: z.string().optional(),
-});
-
-export const projectMetadataSchema = z.object({
-  owner: z.string().optional(),
-  targetDate: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-});
-
-export const poamMetadataSchema = z.object({
-  dueDate: z.string().optional(),
-  severity: z.enum(["very_high", "high", "moderate", "low", "very_low"]).optional(),
-  controlRefs: z.array(z.string()).optional(),
-  poc: z.string().optional(),
-  milestones: z.array(poamMilestoneSchema).optional(),
-});
-
 export const nodeMetadataSchema = z.record(z.string(), z.unknown());
 
 export const positionSchema = z.object({
@@ -106,9 +78,12 @@ export const updateStatusSchema = z.object({
 });
 
 export const tileFieldIdSchema = z.enum(TILE_FIELD_IDS as [string, ...string[]]);
-export const linkOrientationSchema = z.enum(["vertical", "horizontal"]);
+
+export const themeModeSchema = z.enum(["dark", "light"]);
+export const placementModeSchema = z.enum(["auto", "manual"]);
 
 export const updateAppSettingsSchema = z.object({
-  tileFields: z.array(tileFieldIdSchema).max(MAX_EXTRA_TILE_FIELDS).optional(),
-  linkOrientation: linkOrientationSchema.optional(),
+  tileFields: z.record(z.string(), z.array(tileFieldIdSchema).max(MAX_EXTRA_TILE_FIELDS)).optional(),
+  theme: themeModeSchema.optional(),
+  placementMode: placementModeSchema.optional(),
 });

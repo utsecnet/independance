@@ -1,7 +1,5 @@
 import { useState } from "react";
 import { getViewportForBounds, type ReactFlowInstance } from "@xyflow/react";
-import { toPng } from "html-to-image";
-import { jsPDF } from "jspdf";
 import type { GraphRFEdge, GraphRFNode } from "../../../state/store";
 import styles from "./ExportButton.module.css";
 
@@ -55,6 +53,12 @@ async function withPrintTheme<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 async function captureGraphPng(rfInstance: ReactFlowInstance<GraphRFNode, GraphRFEdge>): Promise<string> {
+  // html-to-image is only ever needed once someone actually exports, which
+  // is a rare action compared to just using the map — loading it on demand
+  // instead of bundling it into the app's main chunk keeps it off the
+  // critical path for every other page load.
+  const { toPng } = await import("html-to-image");
+
   const viewportEl = document.querySelector<HTMLElement>(".react-flow__viewport");
   if (!viewportEl) throw new Error("Nothing to export yet");
 
@@ -137,6 +141,9 @@ export function ExportButton({ rfInstance }: ExportButtonProps) {
     setExporting(true);
     setError(null);
     try {
+      // Same rationale as html-to-image above — jsPDF is only needed for
+      // this one action, so it's loaded on demand rather than eagerly.
+      const { jsPDF } = await import("jspdf");
       const dataUrl = await withPrintTheme(() => captureGraphPng(rfInstance));
       const pdf = new jsPDF({
         orientation: "landscape",

@@ -1,0 +1,56 @@
+.wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.swatch:hover {
+  border-color: var(--text-dim);
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+}
+
+.grid {
+  position: absolute;
+  top: 34px;
+  left: 0;
+  z-index: 36;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  padding: 8px;
+}
+
+.option {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.option:hover {
+  transform: scale(1.1);
+}
+
+.selected {
+  outline: 2px solid var(--text-h);
+  outline-offset: 1px;
+}

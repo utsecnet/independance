@@ -24,13 +24,21 @@ function rowToEdge(row: EdgeRow): GraphEdge {
 }
 
 export function listEdges(db: DatabaseSync): GraphEdge[] {
-  const rows = db.prepare("SELECT * FROM edges ORDER BY created_at").all() as unknown as EdgeRow[];
+  const rows = db.prepare("SELECT * FROM edges ORDER BY created_at, id").all() as unknown as EdgeRow[];
   return rows.map(rowToEdge);
 }
 
 export function getEdge(db: DatabaseSync, id: string): GraphEdge | undefined {
   const row = db.prepare("SELECT * FROM edges WHERE id = ?").get(id) as unknown as EdgeRow | undefined;
   return row ? rowToEdge(row) : undefined;
+}
+
+/** Every edge connecting these two nodes, in either direction — used to look for a conflicting opposite-direction edge without scanning the whole table. */
+export function getEdgesBetween(db: DatabaseSync, aId: string, bId: string): GraphEdge[] {
+  const rows = db
+    .prepare("SELECT * FROM edges WHERE (source_id = @a AND target_id = @b) OR (source_id = @b AND target_id = @a)")
+    .all({ a: aId, b: bId }) as unknown as EdgeRow[];
+  return rows.map(rowToEdge);
 }
 
 export interface CreateEdgeInput {

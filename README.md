@@ -1,64 +1,27 @@
 # independance
 
-An interactive dependency map for tasks, projects, and POA&Ms (Plans of Action & Milestones). Build a map of interconnected work by creating nodes and linking them — including by dragging directly between nodes on the canvas — and watch the graph update live as you edit.
+A visual dependency map for projects, tasks, and POA&Ms. Add your work as tiles, link them with "blocks" / "depends on" relationships, and the graph arranges itself into a clean, readable map — no manual layout required.
 
-## Stack
+![Screenshot of independance showing a sample dependency map](docs/screenshot.png)
 
-- **Client:** React + Vite + TypeScript, [React Flow](https://reactflow.dev/) for the graph canvas, Zustand for state.
-- **Server:** Express + TypeScript, persisted to a local SQLite database via Node's built-in [`node:sqlite`](https://nodejs.org/api/sqlite.html) (`DatabaseSync`).
-- **Shared:** a `shared` workspace package holding TypeScript types and Zod validation schemas used by both client and server.
+## What it does
 
-npm workspaces tie `client`, `server`, and `shared` together from the root `package.json`.
+- **Map dependencies visually.** Create Projects, Tasks, POA&Ms — or your own custom types — and connect them to show what blocks what.
+- **Auto-arranging layout.** Add or rewire a dependency and the graph re-lays itself out to stay readable; switch to manual mode any time to position tiles by hand.
+- **Edit in place.** Click a tile to expand and edit it, drag one tile onto another to link them, filter the map by type or POA&M severity.
+- **Local and private.** No account, no cloud — everything is served from your own machine and stored in a local SQLite file.
 
-## Prerequisites
+## Quick start
 
-- Node.js 22+ (this project uses `node:sqlite`, so an older Node will not work).
-
-## Setup
+Requires Node.js 22+.
 
 ```
 npm install
-```
-
-## Running
-
-```
 npm run dev
 ```
 
-This runs the client (Vite dev server) and server (Express, via `tsx watch`) together via `concurrently`:
+Then open http://localhost:5173.
 
-- Client: http://localhost:5173
-- Server: http://localhost:5175 (the client's dev server proxies `/api` requests here)
+## Stack
 
-The server creates its SQLite database at `server/data/independance.db` on first run (gitignored — local data only).
-
-To run just one side: `npm run dev:client` or `npm run dev:server`.
-
-## Building
-
-```
-npm run build
-```
-
-## Project layout
-
-```
-client/   React app — src/components/layout/{TopBar,LeftSubMenu,LeftPane,RightPane}
-server/   Express API — src/app.ts (app factory), src/index.ts (entrypoint),
-          src/db/migrations/*.sql, src/routes/, src/db/queries/
-shared/   src/types.ts, src/schemas.ts — shared between client and server
-```
-
-## Tests
-
-This repository intentionally contains **no test files** — automated tests, regression scripts, and dev tooling live in a separate working directory (`_working/independance`, alongside this repo) that imports directly from here. See that directory's `vitest.config.ts` for how cross-directory module resolution is set up.
-
-## API
-
-REST API under `/api`:
-
-- `GET /api/graph` — combined `{ nodes, edges }` for the initial load
-- `GET/POST/PATCH/DELETE /api/nodes[/:id]`, plus `PATCH /api/nodes/:id/position`
-- `GET/POST/PATCH/DELETE /api/edges[/:id]`
-- `GET /api/health`
+React + Vite + TypeScript on the client (React Flow for the canvas, Zustand for state), Express + TypeScript on the server, persisted locally via Node's built-in [`node:sqlite`](https://nodejs.org/api/sqlite.html). Shared types and validation live in a `shared` workspace package used by both.
