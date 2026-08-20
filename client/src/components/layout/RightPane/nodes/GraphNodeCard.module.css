@@ -16,7 +16,20 @@
      Content that genuinely needs more room (a long title, several extra
      fields) still grows past this, same as before. */
   min-height: 90px;
-  min-width: 160px;
+  /* Matches layout.ts's DEFAULT_NODE_WIDTH the same way min-height matches
+     DEFAULT_NODE_HEIGHT above — the layout engine's column spacing (MAIN_STEP)
+     assumes every collapsed tile is exactly this wide. A fixed width (not
+     just a minimum) instead of letting long content grow the box keeps
+     columns lining up regardless of what any given tile happens to show;
+     anything that doesn't fit truncates with an ellipsis instead (title,
+     type label, status/severity pills — see their own rules below).
+     .expanded overrides this back to the edit form's own width.
+     No overflow:hidden here: the connection handles (see .handle) are
+     deliberately positioned half-outside this box by React Flow, and
+     clipping the card would cut them in half. Each text field below
+     truncates itself instead (flex stretch already caps their width to
+     the card's, so their own overflow:hidden is enough). */
+  width: 180px;
   padding: 10px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -33,7 +46,40 @@
   font-size: 13px;
 }
 
+/* One small colored "N" flag per node type with a nonzero upstream
+   dependency count (see data.dependencyCounts) — sits astride the card's
+   own top border rather than fully above it, reading as a tab attached to
+   the tile instead of a separate floating badge. Positioned/sized to clear
+   the type label's text, which starts well below the card's own top edge
+   (see .card's padding). */
+.rollupTabs {
+  position: absolute;
+  top: -9px;
+  left: 12px;
+  display: flex;
+  gap: 4px;
+  z-index: 1;
+}
+
+.rollupTab {
+  min-width: 16px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 5px 5px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.22);
+}
+
 .card.expanded {
+  width: auto;
+  overflow: visible;
   border-color: var(--accent-cyan);
   box-shadow: 0 0 0 2px var(--accent-cyan-dim);
   padding: 14px;
@@ -46,25 +92,121 @@
   text-transform: uppercase;
   opacity: 0.6;
   margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .title {
   font-weight: 600;
   margin-bottom: 6px;
   line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status {
   display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
 }
 
+/* The status pill is now also a dropdown (see GraphNodeCard) — this
+   wrapper carries the same background/color a plain .status div always
+   had (every status-* rule below still targets it unchanged), sized via
+   its visible label+arrow content (inline-flex, fit-content) rather than
+   the block-level stretch a flex *item* would otherwise get from .card's
+   align-items:stretch, so it stays a tight pill instead of ballooning out
+   to the card's full width. The actual <select> (see .statusSelect below)
+   is a transparent overlay stretched to this box's exact size, so the
+   whole pill is clickable, not just the rendered text. */
+.statusWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  position: relative;
+  cursor: pointer;
+}
+
+.statusWrap:focus-within {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 1px;
+}
+
+.statusLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Inline SVG rather than a background-image chevron so it's a real DOM
+   descendant of .statusWrap and picks up its color via plain
+   `currentColor` — a CSS background-image can't dynamically follow the
+   element's color the same way, so the arrow would otherwise need its own
+   hardcoded color per status instead of automatically matching whichever
+   one is active. */
+.statusArrow {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+/* A <select>'s own box only ever wraps its own rendered text, which is why
+   .statusLabel exists to size the wrapper instead — this element is
+   stretched to cover that entire wrapper and made fully transparent, so
+   every pixel of the visible pill (label, arrow, and the padding around
+   both) opens the native dropdown, not just the text itself. */
+.statusSelect {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  appearance: none;
+  -moz-appearance: none;
+  border: none;
+  background: none;
+  color: transparent;
+  opacity: 0;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+}
+
+.statusSelect:focus {
+  outline: none;
+}
+
+/* Each <option> renders via the OS's own native dropdown chrome (which
+   can't inherit the pill's color-mix background, and shouldn't inherit
+   .statusSelect's own transparent/invisible styling either), so it needs
+   its own explicit, theme-aware colors. */
+.statusSelect option {
+  background: var(--surface-raised);
+  color: var(--text-h);
+  opacity: 1;
+}
+
 .status-not_started,
 .status-drafting {
-  background: var(--status-not-started-bg);
-  color: var(--status-not-started-fg);
+  /* No inherent semantic color for the default "nothing happening yet"
+     status (unlike blocked/complete/etc below, which keep their own fixed
+     meaning-carrying hues) — a flat grey here could land close in
+     hue/lightness to whichever type color the card's background happens
+     to be tinted with (see .card's color-mix) and nearly disappear, most
+     visibly on green- or blue-tinted cards. Tinting it from the tile's
+     own --type-color instead, at a stronger mix than the card's 14%
+     background wash, gives it a shade that reads as part of the same
+     tile while still standing out as a distinct pill. */
+  background: color-mix(in srgb, var(--type-color, var(--text-dim)) 40%, var(--surface));
+  color: var(--text-h);
 }
 
 .status-in_progress {
@@ -94,13 +236,35 @@
   color: var(--status-review-fg);
 }
 
+.riskRow {
+  /* Two fixed columns (Inherent Risk always column 1, Residual Risk always
+     column 2 — see the gridColumn set inline in GraphNodeCard) rather than
+     flex, so unchecking one in Settings > Appearance leaves its column
+     empty instead of the other badge sliding over to take its place. `1fr`
+     columns size from the row's own width, not from whichever badge is
+     actually present, so an empty column still holds its ground. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 4px;
+  max-width: 100%;
+}
+
 .severity {
-  display: inline-block;
+  /* Stays on one row with its sibling risk badge (see .riskRow) rather than
+     wrapping to a second line — shrinks and ellipsis-truncates instead, the
+     same "truncate, don't grow" convention every other tile field follows
+     (see .card's own width comment). */
+  justify-self: start;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 11px;
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 999px;
-  margin-top: 4px;
 }
 
 .severity-very_high {
@@ -166,6 +330,50 @@
   height: 8px;
   background: var(--accent-cyan);
   border: 1px solid var(--surface);
+}
+
+/* A short stub wire planted on the tile's edge with the [N] badge hanging
+   off its far end — [#]---| — rather than a bare badge sitting flush
+   against (and partly over) the edge itself. `right`/`left: 100%` (below)
+   line the stub's near end up exactly on the tile's own edge — the same
+   trick as an absolutely positioned tooltip flush against its anchor —
+   so it reads as "planted on the tile" regardless of the tile's width. */
+.filteredStub {
+  position: absolute;
+  top: 18px;
+  display: flex;
+  align-items: center;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* Both sides read left-to-right in DOM order already — [badge, wire] for
+   the left stub, [wire, badge] for the right one (see the JSX) — so plain
+   row layout (the default) is correct for both; no row-reverse needed. */
+.filteredStubLeft {
+  right: 100%;
+}
+
+.filteredStubRight {
+  left: 100%;
+}
+
+.filteredWire {
+  width: 12px;
+  height: 2px;
+  background: var(--text-dim);
+}
+
+.filteredBadge {
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  background: var(--surface-raised);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  white-space: nowrap;
 }
 
 .extraField {

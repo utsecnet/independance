@@ -87,8 +87,8 @@ export const ALWAYS_ON_TILE_FIELDS = ["title"] as const;
  * Appearance settings field picker can present it under that type's own
  * heading instead of one long undifferentiated list — useful since e.g.
  * POA&Ms and Tasks have almost entirely different metadata fields. A field
- * can belong to more than one group (Due Date is meaningful for both Task
- * and POA&M), in which case it's shown once under each relevant heading.
+ * can belong to more than one group, in which case it's shown once under
+ * each relevant heading.
  */
 export type TileFieldGroup = "task" | "project" | "poam";
 
@@ -106,13 +106,19 @@ export const TILE_FIELD_DEFS = [
   { id: "status", label: "Status", groups: ["task", "project", "poam"] },
   { id: "assignee", label: "Assignee", groups: ["task"] },
   { id: "estimateHours", label: "Estimate (hours)", groups: ["task"] },
-  { id: "dueDate", label: "Due Date", groups: ["task", "poam"] },
+  { id: "dueDate", label: "Due Date", groups: ["task"] },
   { id: "owner", label: "Owner", groups: ["project"] },
   { id: "targetDate", label: "Target Date", groups: ["project"] },
   { id: "tags", label: "Tags", groups: ["project"] },
-  { id: "severity", label: "Severity", groups: ["poam"] },
+  // The NIST 800-53 control this POA&M is about (e.g. "AC-2(4)"). Shown
+  // first whenever a POA&M is listed as a row rather than a full tile (see
+  // ItemsBlade/PoamsTab), ahead of even the title, since it's the detail
+  // someone scanning a list of POA&Ms usually wants first.
+  { id: "control", label: "Control", groups: ["poam"] },
+  { id: "severity", label: "Inherent Risk", groups: ["poam"] },
+  { id: "residualRisk", label: "Residual Risk", groups: ["poam"] },
   { id: "poc", label: "POC", groups: ["poam"] },
-  { id: "controlRefs", label: "Control Refs", groups: ["poam"] },
+  { id: "nextMilestoneDate", label: "Next Milestone Date", groups: ["poam"] },
 ] as const satisfies readonly { id: string; label: string; groups: readonly TileFieldGroup[] }[];
 
 export type TileFieldId = (typeof TILE_FIELD_DEFS)[number]["id"];

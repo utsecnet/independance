@@ -37,7 +37,22 @@
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  color: var(--text-dim);
+}
+
+/* The label text only (the bare <span> each .field wraps around its
+   input/select/textarea) — opacity has to land here, not on .field itself,
+   since opacity composites an element *and its children* together, which
+   would otherwise dim the actual editable field alongside its label.
+   Opacity-dimmed --text-h rather than the fixed --text-dim grey: the
+   expanded card's background is tinted by whichever type color the tile
+   has (see .card's color-mix), and a hardcoded grey's fixed lightness can
+   land too close to that tint's own lightness to read clearly. Since
+   --text-h is already guaranteed high-contrast against any of those tinted
+   backgrounds, dimming it via opacity blends toward whatever's actually
+   behind it instead of clashing with it. */
+.field > span {
+  color: var(--text-h);
+  opacity: 0.6;
 }
 
 .field input,

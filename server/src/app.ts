@@ -3,6 +3,7 @@ import cors from "cors";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { DatabaseSync } from "node:sqlite";
 import { createDb } from "./db/connection.js";
 import { healthRouter } from "./routes/health.js";
 import { nodesRouter } from "./routes/nodes.js";
@@ -19,7 +20,15 @@ export interface CreateAppOptions {
   dbPath: string;
 }
 
-export function createApp({ dbPath }: CreateAppOptions): Express {
+// Returns the raw db handle alongside the app (rather than just the app)
+// so a caller that opens many short-lived instances — every test file's own
+// createTestApp, one fresh :memory: database per test — has something to
+// call .close() on afterward instead of just letting each one go
+// unreferenced and rely on GC to reclaim its native handle eventually. The
+// long-running server process (index.ts) has no equivalent need since it
+// only ever opens one, for its own full lifetime, but takes the same shape
+// for a single, consistent createApp contract.
+export function createApp({ dbPath }: CreateAppOptions): { app: Express; db: DatabaseSync } {
   const db = createDb(dbPath);
 
   const app = express();
@@ -49,6 +58,6 @@ export function createApp({ dbPath }: CreateAppOptions): Express {
 
   app.use(errorHandler);
 
-  return app;
+  return { app, db };
 }
 

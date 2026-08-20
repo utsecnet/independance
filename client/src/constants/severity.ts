@@ -9,8 +9,6 @@ export const SEVERITY_LEVELS = [
   { value: "very_low", label: "Very Low" },
 ] as const;
 
-export type SeverityValue = (typeof SEVERITY_LEVELS)[number]["value"];
-
 export const SEVERITY_LABELS: Record<string, string> = Object.fromEntries(
   SEVERITY_LEVELS.map((s) => [s.value, s.label])
 );

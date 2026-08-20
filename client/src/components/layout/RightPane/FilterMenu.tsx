@@ -69,7 +69,7 @@ export function FilterMenu() {
 
             {hasPoam && (
               <div className={styles.group}>
-                <div className={styles.groupTitle}>Severity (POA&amp;M)</div>
+                <div className={styles.groupTitle}>Inherent Risk (POA&amp;M)</div>
                 {SEVERITY_LEVELS.map((level) => (
                   <label key={level.value} className={styles.option}>
                     <input

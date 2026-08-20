@@ -11,7 +11,9 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { NodeType } from "@independance/shared";
 import { handlesForRelationship, useGraphStore, type GraphRFEdge, type GraphRFNode } from "../../../state/store";
-import { CROSS_STEP, DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH, DOT_GRID_SIZE, MAIN_STEP } from "../../../state/layout";
+import { arrangeNodes, CROSS_STEP, DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH, DOT_GRID_SIZE, MAIN_STEP } from "../../../state/layout";
+import { computeDependencyRollups } from "../../../state/dependencyRollup";
+import { collapseHiddenNodes } from "../../../state/graphCollapse";
 import { useConfigStore } from "../../../state/configStore";
 import { useFilterStore } from "../../../state/filterStore";
 import { useDragLinkStore, type DropHalf } from "../../../state/dragLinkStore";
@@ -24,13 +26,22 @@ import { PlacementModeToggle } from "./PlacementModeToggle";
 import styles from "./GraphCanvas.module.css";
 
 /**
- * Applies the map filter (see filterStore) to what's actually rendered,
- * without touching the underlying graph or its layout — a hidden node's
- * position is preserved exactly, so re-enabling its type/severity brings it
- * straight back where it was. An edge is only shown when both of its
- * endpoints are visible; a dangling edge to a hidden node would be
- * meaningless (and React Flow errors on an edge referencing a node it
- * doesn't have).
+ * Applies the map filter (see filterStore) to what's actually rendered.
+ * Filtering doesn't just hide nodes and leave gaps where they used to be —
+ * every surviving node is re-laid-out via the exact same arrangeNodes
+ * rules the unfiltered map uses (tiering, ordering, spacing — see
+ * layout.ts), as if the hidden nodes had never existed, so the map
+ * visually *collapses* to fill the space they left. Where a hidden run
+ * used to sit between two things that are still visible, a single
+ * "bridge" edge takes its place carrying a `[N]` label — same solid line
+ * as any other edge, just with a count badge in the middle — so it's clear
+ * something was filtered out there and how much, rather than the
+ * connection just silently vanishing along with the nodes it used to run
+ * through (see collapseHiddenNodes).
+ *
+ * Purely a display-layer transform — never touches the underlying graph's
+ * real stored positions, so clearing the filter always restores exactly
+ * where everything was before.
  */
 export function filterGraphForDisplay(
   nodes: GraphRFNode[],
@@ -40,18 +51,61 @@ export function filterGraphForDisplay(
 ): { nodes: GraphRFNode[]; edges: GraphRFEdge[] } {
   if (hiddenTypeIds.size === 0 && hiddenSeverities.size === 0) return { nodes, edges };
 
-  const visibleNodes = nodes.filter((n) => {
-    if (hiddenTypeIds.has(n.data.nodeType)) return false;
-    const severity = (n.data.metadata as Record<string, unknown>).severity;
-    if (typeof severity === "string" && hiddenSeverities.has(severity)) return false;
-    return true;
+  const hiddenIds = new Set(
+    nodes
+      .filter((n) => {
+        if (hiddenTypeIds.has(n.data.nodeType)) return true;
+        const severity = (n.data.metadata as Record<string, unknown>).severity;
+        return typeof severity === "string" && hiddenSeverities.has(severity);
+      })
+      .map((n) => n.id)
+  );
+  if (hiddenIds.size === 0) return { nodes, edges };
+
+  const { visibleNodeIds, bridgeEdges, danglingCounts } = collapseHiddenNodes(
+    nodes.map((n) => n.id),
+    edges.map((e) => ({ source: e.source, target: e.target, relationshipType: e.data!.relationshipType })),
+    hiddenIds
+  );
+
+  const positions = arrangeNodes(
+    visibleNodeIds,
+    bridgeEdges.map((b) => ({ source: b.source, target: b.target, data: { relationshipType: "blocks" as const } }))
+  );
+
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const collapsedNodes = visibleNodeIds.map((id) => {
+    const original = nodeById.get(id)!;
+    const position = positions.get(id);
+    const filteredCounts = danglingCounts.get(id);
+    const base = position ? { ...original, position } : original;
+    return filteredCounts ? { ...base, data: { ...base.data, filteredCounts } } : base;
   });
 
-  if (visibleNodes.length === nodes.length) return { nodes, edges };
+  // Not selectable/deletable: a bridge edge (and, once collapsed, even a
+  // hiddenCount-0 one) no longer corresponds 1:1 to a single real edge
+  // record the way an ordinary edge's own id does, so there's nothing
+  // sensible for clicking or Delete to act on while the map is in this
+  // temporary, filtered-and-collapsed state.
+  const collapsedEdges: GraphRFEdge[] = bridgeEdges.map((b) => ({
+    id: `bridge:${b.source}->${b.target}`,
+    source: b.source,
+    target: b.target,
+    selectable: false,
+    deletable: false,
+    ...(b.hiddenCount > 0
+      ? {
+          label: `[${b.hiddenCount}]`,
+          labelBgPadding: [4, 2] as [number, number],
+          labelBgBorderRadius: 4,
+          labelBgStyle: { fill: "var(--surface-raised)" },
+          labelStyle: { fill: "var(--text-dim)", fontSize: 10, fontWeight: 700 },
+        }
+      : {}),
+    data: { relationshipType: "blocks" },
+  }));
 
-  const visibleIds = new Set(visibleNodes.map((n) => n.id));
-  const visibleEdges = edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));
-  return { nodes: visibleNodes, edges: visibleEdges };
+  return { nodes: collapsedNodes, edges: collapsedEdges };
 }
 
 // A dropped tile's vertical center snaps to the *nearest already-placed
@@ -157,6 +211,12 @@ export function GraphCanvas() {
   const nodeTypes = useConfigStore((s) => s.nodeTypes);
   const hiddenTypeIds = useFilterStore((s) => s.hiddenTypeIds);
   const hiddenSeverities = useFilterStore((s) => s.hiddenSeverities);
+  // Positions while filtered are a temporary, collapsed re-layout (see
+  // filterGraphForDisplay) rather than the graph's real ones — dragging has
+  // to stay off for the duration regardless of placementMode, since a drop
+  // would otherwise persist one of those temporary coordinates as if it
+  // were a real manual placement.
+  const isFiltered = hiddenTypeIds.size > 0 || hiddenSeverities.size > 0;
   const setDropHover = useDragLinkStore((s) => s.setDropHover);
 
   const paneRef = useRef<HTMLDivElement>(null);
@@ -200,14 +260,31 @@ export function GraphCanvas() {
     [nodes, edges, hiddenTypeIds, hiddenSeverities]
   );
 
+  // Computed off the full (unfiltered) graph, not visibleNodes/visibleEdges
+  // — a tile's dependency tally shouldn't shrink just because the map
+  // filter is currently hiding some of what feeds it.
+  const rollups = useMemo(
+    () =>
+      computeDependencyRollups(
+        nodes.map((n) => ({ id: n.id, type: n.data.nodeType })),
+        edges.map((e) => ({ source: e.source, target: e.target, relationshipType: e.data!.relationshipType }))
+      ),
+    [nodes, edges]
+  );
+
   const displayNodes = useMemo(
     () =>
       visibleNodes.map((n) => {
         const zIndex = n.id === selectedId ? 1000 : undefined;
-        if (zIndex === undefined) return n;
-        return { ...n, zIndex };
+        const counts = rollups.get(n.id);
+        if (zIndex === undefined && !counts) return n;
+        return {
+          ...n,
+          ...(zIndex !== undefined ? { zIndex } : {}),
+          data: counts ? { ...n.data, dependencyCounts: Object.fromEntries(counts) } : n.data,
+        };
       }),
-    [visibleNodes, selectedId]
+    [visibleNodes, selectedId, rollups]
   );
 
   const displayEdges = useMemo(
@@ -403,13 +480,13 @@ export function GraphCanvas() {
         onConnect={onConnect}
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
-        onNodeDragStart={placementMode === "manual" ? handleNodeDragStart : undefined}
-        onNodeDrag={placementMode === "manual" ? handleNodeDrag : undefined}
-        onNodeDragStop={placementMode === "manual" ? handleNodeDragStop : undefined}
+        onNodeDragStart={placementMode === "manual" && !isFiltered ? handleNodeDragStart : undefined}
+        onNodeDrag={placementMode === "manual" && !isFiltered ? handleNodeDrag : undefined}
+        onNodeDragStop={placementMode === "manual" && !isFiltered ? handleNodeDragStop : undefined}
         onNodeClick={(_, node) => selectNode(node.id)}
         onPaneClick={() => selectNode(null)}
         nodeTypes={graphNodeTypes}
-        nodesDraggable={placementMode === "manual"}
+        nodesDraggable={placementMode === "manual" && !isFiltered}
         deleteKeyCode="Delete"
         proOptions={{ hideAttribution: true }}
         fitView

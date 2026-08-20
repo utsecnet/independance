@@ -5,11 +5,16 @@ import { useConfigStore } from "../../../../state/configStore";
 import { useDebouncedCallback } from "../../../../hooks/useDebouncedCallback";
 import { MetadataFields, type MetadataFormValues } from "./MetadataFields";
 import { RelationshipsTab } from "./RelationshipsTab";
+import { PoamsTab } from "./PoamsTab";
 import styles from "./NodeCardForm.module.css";
 
 const AUTOSAVE_DEBOUNCE_MS = 500;
-const TABS = ["Details", "Relationships"] as const;
-type Tab = (typeof TABS)[number];
+const BASE_TABS = ["Details", "Relationships"] as const;
+// Only Task/Project tiles roll up POA&Ms from further down their own
+// dependency chain (see collectUpstreamIdsByType) — a POA&M has nothing
+// upstream of itself to roll up, and this tab would always be empty there.
+const POAMS_TAB = "POA&Ms" as const;
+type Tab = (typeof BASE_TABS)[number] | typeof POAMS_TAB;
 
 function metadataToFormValues(type: NodeType, metadata: NodeMetadata): MetadataFormValues {
   const m = metadata as Record<string, unknown>;
@@ -29,10 +34,11 @@ function metadataToFormValues(type: NodeType, metadata: NodeMetadata): MetadataF
   }
   if (type === "poam") {
     return {
+      control: (m.control as string) ?? "",
       severity: (m.severity as string) ?? "",
-      dueDate: (m.dueDate as string) ?? "",
+      residualRisk: (m.residualRisk as string) ?? "",
+      nextMilestoneDate: (m.nextMilestoneDate as string) ?? "",
       poc: (m.poc as string) ?? "",
-      controlRefs: Array.isArray(m.controlRefs) ? (m.controlRefs as string[]).join(", ") : "",
     };
   }
   return {};
@@ -57,12 +63,17 @@ function formValuesToMetadata(type: NodeType, values: MetadataFormValues, existi
   }
   if (type === "poam") {
     return {
+      control: values.control || undefined,
       severity: (values.severity || undefined) as "very_high" | "high" | "moderate" | "low" | "very_low" | undefined,
-      dueDate: values.dueDate || undefined,
+      residualRisk: (values.residualRisk || undefined) as
+        | "very_high"
+        | "high"
+        | "moderate"
+        | "low"
+        | "very_low"
+        | undefined,
+      nextMilestoneDate: values.nextMilestoneDate || undefined,
       poc: values.poc || undefined,
-      controlRefs: values.controlRefs
-        ? values.controlRefs.split(",").map((t) => t.trim()).filter(Boolean)
-        : undefined,
     };
   }
   // Custom types have no metadata form fields to edit, so leave whatever was
@@ -81,6 +92,7 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
   const deleteNode = useGraphStore((s) => s.deleteNode);
 
   const type = data.nodeType;
+  const tabs: readonly Tab[] = type === "task" || type === "project" ? [...BASE_TABS, POAMS_TAB] : BASE_TABS;
   const allStatuses = useConfigStore((s) => s.statuses);
   const statuses = useMemo(() => allStatuses.filter((st) => st.typeId === type), [allStatuses, type]);
   const [title, setTitle] = useState(data.title);
@@ -94,6 +106,16 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
 
   const skipNextAutosave = useRef(true);
   const isDirty = useRef(false);
+  // Unlike isDirty (cleared the moment an autosave lands), this never resets
+  // once set — it's what Escape checks to decide whether there's anything
+  // to revert at all, since an edit typed >500ms before Escape is pressed
+  // has already autosaved and isDirty would otherwise read false by then.
+  const everDirty = useRef(false);
+  // Snapshot of exactly what this card looked like when it was opened, so
+  // Escape can restore precisely that — not just "undo the last unsaved
+  // keystroke" but "undo everything typed this time the card was open,"
+  // including whatever the 500ms autosave already committed to the server.
+  const originalSnapshot = useRef({ title: data.title, description: data.description ?? "", status: data.status, metadata: data.metadata });
   // The debounce timer's own unmount cleanup just cancels the pending
   // timeout — it never invokes the callback — so closing the card (Done,
   // clicking away, selecting another node) before the 500ms debounce fires
@@ -132,6 +154,7 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
       return;
     }
     isDirty.current = true;
+    everDirty.current = true;
     debouncedAutosave();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, description, status, metaValues]);
@@ -160,6 +183,68 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
     }
   }
 
+  // Enter saves immediately (rather than waiting out the autosave debounce)
+  // and closes; Escape discards everything changed since the card opened —
+  // including whatever the debounce already autosaved — and closes without
+  // it. Either way isDirty is cleared before onClose so the unmount-flush
+  // effect above never re-applies (Escape) or redundantly re-saves (Enter)
+  // on top of what this already did.
+  async function handleEnterSave() {
+    if (!latestValues.current.title.trim()) return;
+    debouncedAutosave.cancel();
+    await persistEdit();
+    onClose();
+  }
+
+  function handleEscapeDiscard() {
+    debouncedAutosave.cancel();
+    if (everDirty.current) {
+      isDirty.current = false;
+      updateNode(id, { ...originalSnapshot.current }).catch(() => {});
+    }
+    onClose();
+  }
+
+  // A React onKeyDown prop on the form only ever fires while focus is
+  // somewhere *inside* it — expanding a tile doesn't itself focus any of
+  // its fields, so with nothing clicked into yet, Escape/Enter would silently
+  // do nothing. A window-level listener catches both regardless of focus,
+  // same as ItemsBlade's own Escape-to-close handling. Read through a ref
+  // (rather than putting the handlers themselves in the effect's deps) so
+  // this only ever attaches once per card, not on every render.
+  const handlersRef = useRef({ handleEnterSave, handleEscapeDiscard });
+  handlersRef.current = { handleEnterSave, handleEscapeDiscard };
+
+  useEffect(() => {
+    function onWindowKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.key === "Enter" && !(e.target instanceof HTMLTextAreaElement) && !(e.target instanceof HTMLButtonElement)) {
+        e.preventDefault();
+        handlersRef.current.handleEnterSave();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        handlersRef.current.handleEscapeDiscard();
+      }
+    }
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => window.removeEventListener("keydown", onWindowKeyDown);
+  }, []);
+
+  // Rendered once and placed wherever this type wants it (see the Details
+  // tab below and MetadataFields' poam branch) rather than duplicating the
+  // select markup in two spots.
+  const statusField = (
+    <label className={styles.field}>
+      <span>Status</span>
+      <select value={status} onChange={(e) => setStatus(e.target.value as NodeStatus)}>
+        {statuses.map((s) => (
+          <option key={s.id} value={s.value}>
+            {s.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
   return (
     <form
       className={`${styles.form} nodrag`}
@@ -167,7 +252,7 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
       onSubmit={(e) => e.preventDefault()}
     >
       <div className={styles.tabs}>
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab}
             type="button"
@@ -181,18 +266,12 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
 
       {activeTab === "Details" ? (
         <>
-          <div className={styles.row}>
-            <label className={styles.field}>
-              <span>Status</span>
-              <select value={status} onChange={(e) => setStatus(e.target.value as NodeStatus)}>
-                {statuses.map((s) => (
-                  <option key={s.id} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          {/* Every type but POA&M leads with Status, ahead of Title —
+              POA&M instead wants it woven in after Control (see
+              MetadataFields' poam branch), so it's held here as a node
+              rather than rendered inline, and only placed up front for the
+              types that actually want it there. */}
+          {type !== "poam" && statusField}
           <label className={styles.field}>
             <span>Title</span>
             <input value={title} onChange={(e) => setTitle(e.target.value)} required />
@@ -201,10 +280,12 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
             <span>Description</span>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
-          <MetadataFields type={type} values={metaValues} onChange={setMetaValues} />
+          <MetadataFields type={type} values={metaValues} onChange={setMetaValues} statusField={statusField} />
         </>
-      ) : (
+      ) : activeTab === "Relationships" ? (
         <RelationshipsTab nodeId={id} />
+      ) : (
+        <PoamsTab nodeId={id} />
       )}
 
       {error && <div className={styles.error}>{error}</div>}

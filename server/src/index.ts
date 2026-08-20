@@ -17,7 +17,7 @@ const dbPath = path.join(dataDir, "independance.db");
 const parsedPort = process.env.PORT ? Number(process.env.PORT) : NaN;
 const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 5175;
 
-const app = createApp({ dbPath });
+const { app } = createApp({ dbPath });
 
 app.listen(port, () => {
   console.log(`independance server listening on http://localhost:${port}`);

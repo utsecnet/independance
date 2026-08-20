@@ -143,6 +143,41 @@ function resolveTierSpacing(
     if (placed[i]! < minAllowed) placed[i] = minAllowed;
   }
 
+  // The per-level shift a few lines up moves an isotonic-merged block as one
+  // rigid unit (see its own comment) — correct for the member actually
+  // colliding with something outside the block, but it drags every other
+  // member of that block along by the same amount even when *they* had
+  // nothing to clear. Two tiles can end up merged into one block purely by
+  // sharing a priority level and having index-relative ideals that conflict
+  // with each other, with no structural relationship between them at all
+  // (e.g. two unrelated leaf nodes from entirely different chains that
+  // simply landed in the same tier) — so a shift sized for one member's
+  // real conflict can push a completely unrelated member a full extra
+  // CROSS_STEP past where its own ideal ever needed it to go.
+  //
+  // A two-pass relaxation afterward pulls every tile back toward its own
+  // ideal, capped by whatever gap is already owed to the neighbor on the
+  // relevant side — backward first (closing excess distance from a
+  // too-far-negative position by pulling it toward its already-finalized
+  // next neighbor), then forward (the mirror case, pulling a too-far-
+  // positive position back toward its already-finalized previous
+  // neighbor). Each step only ever moves a tile *toward* its own ideal and
+  // only as far as a gap this function has already established allows, so
+  // it can strictly reduce unnecessary displacement but can never introduce
+  // a new overlap or change anyone's relative order.
+  for (let i = n - 2; i >= 0; i--) {
+    const idealHere = ideal.get(orderedIds[i]) ?? 0;
+    const cap = placed[i + 1]! - CROSS_STEP;
+    const relaxed = Math.min(idealHere, cap);
+    if (relaxed > placed[i]!) placed[i] = relaxed;
+  }
+  for (let i = 1; i < n; i++) {
+    const idealHere = ideal.get(orderedIds[i]) ?? 0;
+    const floor = placed[i - 1]! + CROSS_STEP;
+    const relaxed = Math.max(idealHere, floor);
+    if (relaxed < placed[i]!) placed[i] = relaxed;
+  }
+
   const result = new Map<string, number>();
   orderedIds.forEach((id, i) => result.set(id, placed[i]!));
   return result;
@@ -337,6 +372,70 @@ export function arrangeNodes(
   }
   for (const id of nodeIds) countDescendants(id, new Set());
 
+  // A long edge (spanning 2+ tiers) gets a chain of "dummy" stand-in nodes,
+  // one per tier it passes through — the standard Sugiyama technique for
+  // letting the ordering sweeps below actually account for a long edge's
+  // own path through an intermediate tier, not just whichever real nodes
+  // happen to already live there. Without this, phase 1 has no mechanism
+  // for a long edge at all: neither of its real endpoints is a direct
+  // neighbor of anything in a tier it merely passes through, so nothing in
+  // that tier's barycenter score ever reflects it, and the sweep is free to
+  // land an ordering that sends the edge diagonally across everything else
+  // in between with no way to prefer one that doesn't. This is why
+  // `ef9a -> 1391`-style long edges (a real graph shape this was built
+  // against) kept crossing other edges even after many sweep iterations —
+  // more iterations can't fix a signal the scoring never had access to.
+  //
+  // Dummy chains exist only for phase 1's own ordering sweeps
+  // (orderingBlockedBy/orderingBlocks below, and dummyIds for stripping them
+  // back out afterward) — phase 2 and 3 place only real nodes, using the
+  // original blockedBy/blocks untouched, so a dummy never ends up with an
+  // actual position of its own.
+  const orderingBlockedBy = new Map<string, Set<string>>();
+  const orderingBlocks = new Map<string, Set<string>>();
+  for (const [id, set] of blockedBy) orderingBlockedBy.set(id, new Set(set));
+  for (const [id, set] of blocks) orderingBlocks.set(id, new Set(set));
+  const dummyIds = new Set<string>();
+  const dummyIdsByTier = new Map<number, string[]>();
+
+  function addOrderingEdge(blockerId: string, blockedId: string) {
+    orderingBlockedBy.get(blockedId)!.add(blockerId);
+    orderingBlocks.get(blockerId)!.add(blockedId);
+  }
+
+  blockerBlockedPairs.forEach(({ blockerId, blockedId }, edgeIndex) => {
+    const t0 = tierOf.get(blockerId) ?? 0;
+    const t1 = tierOf.get(blockedId) ?? 0;
+    if (t1 - t0 <= 1) return; // adjacent tiers — no intermediate tier to route through
+    let previousId = blockerId;
+    for (let tier = t0 + 1; tier < t1; tier++) {
+      const dummyId = `__dummy_${edgeIndex}_${tier}`;
+      dummyIds.add(dummyId);
+      orderingBlockedBy.set(dummyId, new Set());
+      orderingBlocks.set(dummyId, new Set());
+      addOrderingEdge(previousId, dummyId);
+      const list = dummyIdsByTier.get(tier);
+      if (list) list.push(dummyId);
+      else dummyIdsByTier.set(tier, [dummyId]);
+      previousId = dummyId;
+    }
+    addOrderingEdge(previousId, blockedId);
+  });
+
+  function seedDummiesIntoOrder() {
+    for (const [tier, ids] of dummyIdsByTier) {
+      const list = order.get(tier);
+      if (list) list.push(...ids);
+      else order.set(tier, [...ids]);
+    }
+  }
+
+  function stripDummiesFromOrder() {
+    for (const [tier, ids] of order) {
+      if (ids.some((id) => dummyIds.has(id))) order.set(tier, ids.filter((id) => !dummyIds.has(id)));
+    }
+  }
+
   const order = new Map<number, string[]>();
   const cross = new Map<string, number>();
 
@@ -416,13 +515,144 @@ export function arrangeNodes(
     }
   }
 
+  // Shared by both the fresh-layout and resnap paths below: alternating
+  // barycenter sweeps (Sugiyama-style) that reorder each tier to minimize
+  // edge crossings, starting from whatever order `order` was already seeded
+  // with. A genuine tie in score (e.g. two tiles whose only neighbor is the
+  // same single shared node, so there's no crossing-based reason to prefer
+  // either order) falls back to descendant count, and — deliberately, via
+  // Array.prototype.sort's guaranteed stability rather than a third
+  // comparator term — to whatever relative order the two already had in
+  // `ids` below. For a fresh layout that's the alphabetical seed (arbitrary
+  // but consistent); for a resnap it's the user's own manual arrangement.
+  // Reordering only ever happens here because *some* real difference in
+  // score or descendant count called for it, never just to impose a
+  // canonical order on an actual tie — so a manually-arranged tie survives
+  // resnapping exactly as placed, while a real crossing still gets fixed.
+  function barycenterSort(tier: number, neighborsOf: Map<string, Set<string>>) {
+    const ids = order.get(tier);
+    if (!ids) return;
+    const scored = ids.map((id) => {
+      const neighbors = neighborsOf.get(id) ?? new Set();
+      let sum = 0;
+      let count = 0;
+      for (const neighborId of neighbors) {
+        const pos = rankCross.get(neighborId);
+        if (pos !== undefined) {
+          sum += pos;
+          count++;
+        }
+      }
+      const score = count > 0 ? sum / count : (rankCross.get(id) ?? 0);
+      return { id, score };
+    });
+    scored.sort((a, b) => a.score - b.score || (descendantCount.get(b.id) ?? 0) - (descendantCount.get(a.id) ?? 0));
+    order.set(
+      tier,
+      scored.map((s) => s.id)
+    );
+  }
+
+  function runOrderingSweeps() {
+    for (let sweep = 0; sweep < ORDERING_SWEEPS; sweep++) {
+      recomputeRankCross();
+      if (sweep % 2 === 0) {
+        for (let tier = 1; tier <= maxTier; tier++) barycenterSort(tier, orderingBlockedBy);
+      } else {
+        for (let tier = maxTier - 1; tier >= 0; tier--) barycenterSort(tier, orderingBlocks);
+      }
+    }
+  }
+
+  // Counts crossings between exactly two adjacent tiers, given their
+  // current order — the classic O(edges^2) inversion count: for every pair
+  // of ordering-edges connecting the two tiers, they cross iff their upper
+  // and lower endpoints disagree on which comes first.
+  function crossingsBetweenTiers(upperIds: string[], lowerIds: string[]): number {
+    const upperRank = new Map(upperIds.map((id, i) => [id, i]));
+    const lowerRank = new Map(lowerIds.map((id, i) => [id, i]));
+    const pairs: [number, number][] = [];
+    for (const u of upperIds) {
+      for (const l of orderingBlocks.get(u) ?? []) {
+        const li = lowerRank.get(l);
+        if (li !== undefined) pairs.push([upperRank.get(u)!, li]);
+      }
+    }
+    let crossings = 0;
+    for (let i = 0; i < pairs.length; i++) {
+      for (let j = i + 1; j < pairs.length; j++) {
+        const [u1, l1] = pairs[i];
+        const [u2, l2] = pairs[j];
+        if ((u1 < u2 && l1 > l2) || (u1 > u2 && l1 < l2)) crossings++;
+      }
+    }
+    return crossings;
+  }
+
+  function cloneOrder(): Map<number, string[]> {
+    const copy = new Map<number, string[]>();
+    for (const [tier, ids] of order) copy.set(tier, [...ids]);
+    return copy;
+  }
+
+  function restoreOrder(snapshot: Map<number, string[]>) {
+    for (const [tier, ids] of snapshot) order.set(tier, [...ids]);
+  }
+
+  // The barycenter sweeps above average toward a good ordering but — being
+  // a heuristic, same as every production layered-graph layout tool's
+  // equivalent — can still settle into a local optimum a smarter-looking
+  // arrangement would avoid. This is the standard complementary technique
+  // (Sugiyama's own "transpose" step): repeatedly try swapping each
+  // adjacent pair within a tier and keep the swap only when it strictly
+  // reduces the actual crossing count against both neighboring tiers —
+  // never on a tie, so this can only ever un-cross something real, the
+  // same principle barycenterSort's own tie-breaking already follows.
+  // Capped rather than run to a fixed-point purely as a safety bound; in
+  // practice a handful of passes is already enough to stop finding
+  // improvements on any graph this app's tile counts are ever likely to
+  // produce.
+  const MAX_TRANSPOSE_PASSES = 8;
+  function transposePass() {
+    for (let pass = 0; pass < MAX_TRANSPOSE_PASSES; pass++) {
+      let improved = false;
+      for (let tier = 0; tier <= maxTier; tier++) {
+        const ids = order.get(tier);
+        if (!ids || ids.length < 2) continue;
+        const upperIds = tier > 0 ? order.get(tier - 1) ?? [] : [];
+        const lowerIds = tier < maxTier ? order.get(tier + 1) ?? [] : [];
+        for (let i = 0; i < ids.length - 1; i++) {
+          const before =
+            (upperIds.length > 0 ? crossingsBetweenTiers(upperIds, ids) : 0) +
+            (lowerIds.length > 0 ? crossingsBetweenTiers(ids, lowerIds) : 0);
+          [ids[i], ids[i + 1]] = [ids[i + 1], ids[i]];
+          const after =
+            (upperIds.length > 0 ? crossingsBetweenTiers(upperIds, ids) : 0) +
+            (lowerIds.length > 0 ? crossingsBetweenTiers(ids, lowerIds) : 0);
+          if (after < before) {
+            improved = true;
+          } else {
+            [ids[i], ids[i + 1]] = [ids[i + 1], ids[i]];
+          }
+        }
+      }
+      if (!improved) break;
+    }
+  }
+
   if (options.resnapOrder) {
     // --- Resnap: seed each tier's order from the current (e.g. just
     // hand-dragged) row alone, ignoring whatever column it's currently in —
     // a manually-placed tile's x carries no structural meaning, so the only
     // useful signal in `currentPositions` here is relative row order. Any
     // node with no current position (created while manual mode skipped
-    // layout entirely) sorts after everything that has one. ---
+    // layout entirely) sorts after everything that has one. That seed is
+    // then run through the same crossing-minimizing sweeps a fresh layout
+    // gets — manual placement is a *starting point* for ordering, not the
+    // final word on it, since a manual arrangement nobody deliberately
+    // ordered for crossings (tiles just dropped in whatever order they were
+    // created or dragged) would otherwise resnap its spacing without ever
+    // fixing the crossings switching to Auto is supposed to clean up. ---
     for (const id of nodeIds) {
       const tier = tierOf.get(id) ?? 0;
       const list = order.get(tier);
@@ -439,7 +669,68 @@ export function arrangeNodes(
         return a < b ? -1 : a > b ? 1 : 0;
       });
     }
-    runPhase2();
+    seedDummiesIntoOrder();
+
+    // Unlike transposePass (which only ever swaps on a strict, provable
+    // improvement), the barycenter sweeps aren't monotonic — nothing stops
+    // a sweep from disrupting an already-good seed order before transpose
+    // gets a chance to clean back up. Worse, transposePass's own swap
+    // decisions run against crossingsBetweenTiers' ordering-rank
+    // approximation (cheap enough to check on every candidate swap, unlike
+    // computeRealCrossings' full geometric pass) — so even transpose alone
+    // can "improve" by that approximation while actually making the real,
+    // rendered crossing count worse; running it doesn't just risk failing
+    // to fix a bad seed, it can positively un-fix a good one. Left
+    // unguarded, either failure mode meant clicking Auto on a manually
+    // arranged, already-low-crossing graph could hand back something more
+    // crossed than what was already there — the opposite of what
+    // switching to Auto is supposed to do.
+    //
+    // The fix: evaluate three full candidates — the seed run through
+    // sweeps+transpose, the seed with just transpose, and the seed
+    // completely untouched — every one carried all the way through phase 2
+    // *and* 3 (a candidate can only be judged by real, rendered geometry,
+    // never by the cheap ordering-rank approximation the search itself
+    // uses internally), and keep whichever genuinely has the fewest real
+    // crossings (computeRealCrossings). The untouched-seed candidate is
+    // what makes this a real guarantee rather than just "usually better":
+    // no matter how badly the other two get corrupted, resnapping can
+    // never end up worse than the manual arrangement it started from,
+    // since that arrangement is always in the running too. A genuinely
+    // disorganized starting order (nothing deliberately arranged for
+    // crossings) still gets the full benefit of the sweeps whenever that's
+    // what actually wins the comparison.
+    const seededOrder = cloneOrder();
+
+    function evaluateCandidate(apply: () => void): { order: Map<number, string[]>; cross: Map<string, number>; crossings: number } {
+      restoreOrder(seededOrder);
+      apply();
+      stripDummiesFromOrder();
+      runPhase2();
+      runPhase3();
+      return { order: cloneOrder(), cross: new Map(cross), crossings: computeRealCrossings() };
+    }
+
+    // Ordered least- to most-disruptive so a genuine tie in real crossings —
+    // e.g. an isolated root or dead-end tile that no candidate's reordering
+    // could ever affect either way — favors whichever candidate moved the
+    // seed least, rather than picking sweeps+transpose's result by
+    // incidental array position even though it bought nothing. Only a
+    // strictly lower crossing count ever displaces an earlier (less
+    // disruptive) candidate below.
+    const candidates = [
+      evaluateCandidate(() => {}),
+      evaluateCandidate(() => transposePass()),
+      evaluateCandidate(() => {
+        runOrderingSweeps();
+        transposePass();
+      }),
+    ];
+    let best = candidates[0];
+    for (const candidate of candidates) if (candidate.crossings < best.crossings) best = candidate;
+
+    restoreOrder(best.order);
+    for (const [id, y] of best.cross) cross.set(id, y);
   } else if (currentPositions.size === 0) {
     // --- Phase 1: order each tier to minimize edge crossings ---
     for (const id of nodeIds) {
@@ -450,45 +741,12 @@ export function arrangeNodes(
     }
     for (const list of order.values()) list.sort();
 
-    function barycenterSort(tier: number, neighborsOf: Map<string, Set<string>>) {
-      const ids = order.get(tier);
-      if (!ids) return;
-      const scored = ids.map((id) => {
-        const neighbors = neighborsOf.get(id) ?? new Set();
-        let sum = 0;
-        let count = 0;
-        for (const neighborId of neighbors) {
-          const pos = rankCross.get(neighborId);
-          if (pos !== undefined) {
-            sum += pos;
-            count++;
-          }
-        }
-        const score = count > 0 ? sum / count : (rankCross.get(id) ?? 0);
-        return { id, score };
-      });
-      scored.sort(
-        (a, b) =>
-          a.score - b.score ||
-          (descendantCount.get(b.id) ?? 0) - (descendantCount.get(a.id) ?? 0) ||
-          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-      );
-      order.set(
-        tier,
-        scored.map((s) => s.id)
-      );
-    }
-
-    for (let sweep = 0; sweep < ORDERING_SWEEPS; sweep++) {
-      recomputeRankCross();
-      if (sweep % 2 === 0) {
-        for (let tier = 1; tier <= maxTier; tier++) barycenterSort(tier, blockedBy);
-      } else {
-        for (let tier = maxTier - 1; tier >= 0; tier--) barycenterSort(tier, blocks);
-      }
-    }
-
+    seedDummiesIntoOrder();
+    runOrderingSweeps();
+    transposePass();
+    stripDummiesFromOrder();
     runPhase2();
+    runPhase3();
   } else {
     // --- Incremental placement: every node already in `currentPositions`
     // keeps that exact row, so nothing about the existing map can shift
@@ -574,6 +832,8 @@ export function arrangeNodes(
 
       order.set(tier, tierOrder);
     }
+
+    runPhase3();
   }
 
   // --- Phase 3: nudge tiles clear of unrelated long edges. An edge whose
@@ -588,98 +848,182 @@ export function arrangeNodes(
   // ends are finalized, which for a forward-only pass means everything has
   // to be placed first.
   //
-  // Deliberately much lighter-touch than phase 2's spacing: a pass-through
-  // line has no real height of its own (unlike two tiles, which each
-  // contribute their own half-height), so it only needs half the standard
-  // tile-to-tile clearance from whatever real tile sits nearest it — and
-  // only that one tile (and, if pushing it would otherwise crowd its own
-  // neighbor, a minimal ripple to that neighbor alone) ever moves. Nothing
-  // here reopens phase 2's priority-level resolution, so a low-priority
-  // tile that happens to also need clearing never forces a higher-priority
-  // one to yield room on its behalf.
-  const HALF_TILE = DEFAULT_NODE_HEIGHT / 2;
-  const OBSTACLE_CLEARANCE = HALF_TILE + TILE_GAP;
+  // A function (rather than inline, like it used to be) so the resnap path
+  // below can run it to completion for more than one candidate ordering —
+  // real crossings can only be counted against final phase-3 positions,
+  // not the ordering-sweep/transpose stage's own approximation of them
+  // (see computeRealCrossings) — and still leave whichever candidate wins
+  // with genuinely finished coordinates, not a half-applied phase 3.
+  function runPhase3() {
+    // Deliberately much lighter-touch than phase 2's spacing: a pass-through
+    // line has no real height of its own (unlike two tiles, which each
+    // contribute their own half-height), so it only needs half the standard
+    // tile-to-tile clearance from whatever real tile sits nearest it — and
+    // only that one tile (and, if pushing it would otherwise crowd its own
+    // neighbor, a minimal ripple to that neighbor alone) ever moves. Nothing
+    // here reopens phase 2's priority-level resolution, so a low-priority
+    // tile that happens to also need clearing never forces a higher-priority
+    // one to yield room on its behalf.
+    const HALF_TILE = DEFAULT_NODE_HEIGHT / 2;
+    const OBSTACLE_CLEARANCE = HALF_TILE + TILE_GAP;
 
-  // Snapshot before phase 3 touches anything, so the chain-realignment
-  // pass below can tell "this tile matched its blocker's row before phase
-  // 3 ran" (a plain chain phase 3 is about to knock crooked) apart from
-  // "this tile never matched its blocker's row in the first place" (a tie
-  // with a sibling, or a ripple shift from inserting a new tile nearby —
-  // both legitimate, and not phase 3's doing, so not this pass's business
-  // to undo).
-  const crossBeforePhase3 = new Map(cross);
+    // Snapshot before phase 3 touches anything, so the chain-realignment
+    // pass below can tell "this tile matched its blocker's row before phase
+    // 3 ran" (a plain chain phase 3 is about to knock crooked) apart from
+    // "this tile never matched its blocker's row in the first place" (a tie
+    // with a sibling, or a ripple shift from inserting a new tile nearby —
+    // both legitimate, and not phase 3's doing, so not this pass's business
+    // to undo).
+    const crossBeforePhase3 = new Map(cross);
 
-  for (const { blockerId, blockedId } of blockerBlockedPairs) {
-    const t0 = tierOf.get(blockerId) ?? 0;
-    const t1 = tierOf.get(blockedId) ?? 0;
-    if (t1 - t0 <= 1) continue; // adjacent columns — no intermediate tier to pass through
-    const y0 = cross.get(blockerId) ?? 0;
-    const y1 = cross.get(blockedId) ?? 0;
-    for (let tier = t0 + 1; tier < t1; tier++) {
-      const ids = order.get(tier);
-      if (!ids || ids.length === 0) continue;
-      const obstacleY = y0 + (y1 - y0) * ((tier - t0) / (t1 - t0));
-      const sortedIds = [...ids].sort((a, b) => (cross.get(a) ?? 0) - (cross.get(b) ?? 0));
-      let closestIndex = 0;
-      let closestDistance = Infinity;
-      sortedIds.forEach((id, i) => {
-        const distance = Math.abs((cross.get(id) ?? 0) - obstacleY);
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          closestIndex = i;
+    for (const { blockerId, blockedId } of blockerBlockedPairs) {
+      const t0 = tierOf.get(blockerId) ?? 0;
+      const t1 = tierOf.get(blockedId) ?? 0;
+      if (t1 - t0 <= 1) continue; // adjacent columns — no intermediate tier to pass through
+      const y0 = cross.get(blockerId) ?? 0;
+      const y1 = cross.get(blockedId) ?? 0;
+      for (let tier = t0 + 1; tier < t1; tier++) {
+        const ids = order.get(tier);
+        if (!ids || ids.length === 0) continue;
+        const obstacleY = y0 + (y1 - y0) * ((tier - t0) / (t1 - t0));
+        const sortedIds = [...ids].sort((a, b) => (cross.get(a) ?? 0) - (cross.get(b) ?? 0));
+        let closestIndex = 0;
+        let closestDistance = Infinity;
+        sortedIds.forEach((id, i) => {
+          const distance = Math.abs((cross.get(id) ?? 0) - obstacleY);
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestIndex = i;
+          }
+        });
+        if (closestDistance >= OBSTACLE_CLEARANCE) continue;
+        const closestY = cross.get(sortedIds[closestIndex]) ?? 0;
+        const direction: 1 | -1 = closestY >= obstacleY ? 1 : -1;
+        rippleShift(sortedIds, closestIndex, direction, OBSTACLE_CLEARANCE - closestDistance);
+      }
+    }
+
+    // Phase 3 nudges each intermediate tier independently, purely by how
+    // close that tier's own tiles happen to sit to the obstacle line passing
+    // through it — it has no notion that some other tile several tiers over
+    // was centered on this one's row (or averaged in with others'). The same
+    // long edge can (and, with H -> J, did) cross several tiers in a row at
+    // different fractional heights, nudging each one by a different amount;
+    // anything downstream that was purely centered on a tile phase 3 just
+    // moved is now stale — a single-blocker chain tile no longer sitting
+    // exactly on its blocker's row (H -> J), or a multi-blocker tile no
+    // longer centered on blockers whose rows just changed (a tile blocked by
+    // both J and something untouched, e.g., no longer really centered once
+    // J moved).
+    //
+    // Recomputing every tile's ideal — the average of its blockers' *current*
+    // rows, which for a single blocker is just that row — and reapplying it
+    // here, in tier order so multi-link chains cascade correctly, repairs
+    // both cases the same way phase 2 originally derived them, just with
+    // phase 3's corrections folded in.
+    //
+    // Only reapplied where phase 2 actually had a tile exactly on that ideal
+    // to begin with, per crossBeforePhase3 — a tile isn't always exactly
+    // centered on its blockers even before phase 3 runs (a tied dead-end
+    // sibling gets pushed off it deliberately by
+    // reorderTiedSiblings/resolveTierSpacing, and the incremental path's
+    // ripple can shift one aside to make room for a new insertion nearby);
+    // this must never overrule either of those, since there's no way to
+    // re-derive what its deliberately-adjusted position should become
+    // without re-running that whole resolution.
+    for (let tier = 0; tier <= maxTier; tier++) {
+      for (const id of order.get(tier) ?? []) {
+        const blockerIds = blockedBy.get(id) ?? new Set();
+        if (blockerIds.size === 0) continue;
+
+        let sumBefore = 0;
+        for (const blockerId of blockerIds) sumBefore += crossBeforePhase3.get(blockerId) ?? 0;
+        const idealBefore = sumBefore / blockerIds.size;
+        const before = crossBeforePhase3.get(id) ?? 0;
+
+        if (Math.abs(before - idealBefore) < TIE_EPSILON) {
+          let sumNow = 0;
+          for (const blockerId of blockerIds) sumNow += cross.get(blockerId) ?? 0;
+          cross.set(id, sumNow / blockerIds.size);
         }
-      });
-      if (closestDistance >= OBSTACLE_CLEARANCE) continue;
-      const closestY = cross.get(sortedIds[closestIndex]) ?? 0;
-      const direction: 1 | -1 = closestY >= obstacleY ? 1 : -1;
-      rippleShift(sortedIds, closestIndex, direction, OBSTACLE_CLEARANCE - closestDistance);
+      }
+    }
+
+    // The realignment above recomputes each tile purely from its own
+    // blockers' rows — it has no notion of the tier-mates sitting beside it,
+    // so two otherwise-unrelated tiles that each independently realign onto
+    // a blocker phase 3 happened to nudge can end up closer than CROSS_STEP
+    // to each other (or, in the extreme, exactly on top of one another) even
+    // though every earlier phase enforced that gap everywhere else. One more
+    // forward sweep per tier, walking `order`'s already-established
+    // top-to-bottom sequence, restores it — the identical trick
+    // resolveTierSpacing's own tail sweep uses: push an entry down (never
+    // up) only when it's actually too close to whatever landed immediately
+    // before it, a no-op wherever spacing already held.
+    for (let tier = 0; tier <= maxTier; tier++) {
+      const ids = order.get(tier);
+      if (!ids) continue;
+      // Sorted by *current* row rather than trusted in `order`'s stored
+      // sequence: the realignment above can move some (not necessarily all)
+      // of a tier's tiles independently of each other, and by however much
+      // each one's own blockers happened to shift — nothing keeps that in
+      // sync with `order`'s top-to-bottom sequence from phase 2, so treating
+      // that sequence as still authoritative here could "fix" a gap by
+      // pushing a tile down past a neighbor that's actually now above it,
+      // flipping which side of that neighbor it ends up on instead of
+      // preserving it.
+      const sorted = [...ids].sort((a, b) => (cross.get(a) ?? 0) - (cross.get(b) ?? 0));
+      for (let i = 1; i < sorted.length; i++) {
+        const minAllowed = (cross.get(sorted[i - 1]) ?? 0) + CROSS_STEP;
+        if ((cross.get(sorted[i]) ?? 0) < minAllowed) cross.set(sorted[i], minAllowed);
+      }
     }
   }
 
-  // Phase 3 nudges each intermediate tier independently, purely by how
-  // close that tier's own tiles happen to sit to the obstacle line passing
-  // through it — it has no notion that some other tile several tiers over
-  // was centered on this one's row (or averaged in with others'). The same
-  // long edge can (and, with H -> J, did) cross several tiers in a row at
-  // different fractional heights, nudging each one by a different amount;
-  // anything downstream that was purely centered on a tile phase 3 just
-  // moved is now stale — a single-blocker chain tile no longer sitting
-  // exactly on its blocker's row (H -> J), or a multi-blocker tile no
-  // longer centered on blockers whose rows just changed (a tile blocked by
-  // both J and something untouched, e.g., no longer really centered once
-  // J moved).
-  //
-  // Recomputing every tile's ideal — the average of its blockers' *current*
-  // rows, which for a single blocker is just that row — and reapplying it
-  // here, in tier order so multi-link chains cascade correctly, repairs
-  // both cases the same way phase 2 originally derived them, just with
-  // phase 3's corrections folded in.
-  //
-  // Only reapplied where phase 2 actually had a tile exactly on that ideal
-  // to begin with, per crossBeforePhase3 — a tile isn't always exactly
-  // centered on its blockers even before phase 3 runs (a tied dead-end
-  // sibling gets pushed off it deliberately by
-  // reorderTiedSiblings/resolveTierSpacing, and the incremental path's
-  // ripple can shift one aside to make room for a new insertion nearby);
-  // this must never overrule either of those, since there's no way to
-  // re-derive what its deliberately-adjusted position should become
-  // without re-running that whole resolution.
-  for (let tier = 0; tier <= maxTier; tier++) {
-    for (const id of order.get(tier) ?? []) {
-      const blockerIds = blockedBy.get(id) ?? new Set();
-      if (blockerIds.size === 0) continue;
+  // Real crossings among the graph's actual edges (never the ordering-only
+  // dummy chains — see computeRealCrossings' callers), measured against
+  // *finished* phase-3 coordinates rather than approximated from ordering
+  // ranks the way crossingsBetweenTiers does. The two
+  // measures usually agree closely enough (that approximation is what
+  // transposePass runs on, and it's far cheaper to check on every adjacent
+  // swap than this full geometric pass would be), but not always exactly —
+  // phase 3's obstacle nudging and blocker-averaging can shift a tile just
+  // enough to cross (or uncross) something the ordering-rank view alone
+  // couldn't see. Where that gap matters — comparing resnap's finished
+  // candidates against each other — this is the one that actually counts.
+  function segmentsCrossReal(
+    p1: { x: number; y: number },
+    p2: { x: number; y: number },
+    p3: { x: number; y: number },
+    p4: { x: number; y: number }
+  ): boolean {
+    const ccw = (a: typeof p1, b: typeof p1, c: typeof p1) => (c.y - a.y) * (b.x - a.x) - (b.y - a.y) * (c.x - a.x);
+    const d1 = ccw(p3, p4, p1);
+    const d2 = ccw(p3, p4, p2);
+    const d3 = ccw(p1, p2, p3);
+    const d4 = ccw(p1, p2, p4);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+  }
 
-      let sumBefore = 0;
-      for (const blockerId of blockerIds) sumBefore += crossBeforePhase3.get(blockerId) ?? 0;
-      const idealBefore = sumBefore / blockerIds.size;
-      const before = crossBeforePhase3.get(id) ?? 0;
-
-      if (Math.abs(before - idealBefore) < TIE_EPSILON) {
-        let sumNow = 0;
-        for (const blockerId of blockerIds) sumNow += cross.get(blockerId) ?? 0;
-        cross.set(id, sumNow / blockerIds.size);
+  function computeRealCrossings(): number {
+    const half = DEFAULT_NODE_HEIGHT / 2;
+    const segs = blockerBlockedPairs.map(({ blockerId, blockedId }) => ({
+      source: blockerId,
+      target: blockedId,
+      a: { x: (tierOf.get(blockerId) ?? 0) * MAIN_STEP, y: (cross.get(blockerId) ?? 0) + half },
+      b: { x: (tierOf.get(blockedId) ?? 0) * MAIN_STEP, y: (cross.get(blockedId) ?? 0) + half },
+    }));
+    let crossings = 0;
+    for (let i = 0; i < segs.length; i++) {
+      for (let j = i + 1; j < segs.length; j++) {
+        const s1 = segs[i];
+        const s2 = segs[j];
+        if (s1.source === s2.source || s1.source === s2.target || s1.target === s2.source || s1.target === s2.target)
+          continue;
+        if (segmentsCrossReal(s1.a, s1.b, s2.a, s2.b)) crossings++;
       }
     }
+    return crossings;
   }
 
   const positions = new Map<string, { x: number; y: number }>();

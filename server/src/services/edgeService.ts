@@ -36,6 +36,49 @@ const SQLITE_CONSTRAINT_UNIQUE = 2067;
 // both directions may legitimately coexist.
 const SYMMETRIC_RELATIONSHIP_TYPES: RelationshipType[] = ["relates_to"];
 
+/**
+ * layout.ts's tiering (see arrangeNodes' tierFor) assumes the blocker graph
+ * is acyclic and only guards against infinite recursion on a cycle, not
+ * against producing a nonsensical layout from one — so that invariant has
+ * to actually be enforced here, at the one place a blocks/depends_on edge
+ * can be introduced. The direct two-node case (A blocks B, then B blocks A)
+ * was already handled above by replacing the opposite edge rather than
+ * stacking a contradiction, but that check never looked past the two
+ * endpoints — a longer chain (A blocks B, B blocks C, then C blocks A) used
+ * to sail straight through untouched. Walks forward from `blockedId`
+ * through the existing blocker graph (excluding `excludeEdgeId`, so
+ * updateEdge can check "as if this edge weren't already there") — if that
+ * walk ever reaches `blockerId`, the new edge would close a cycle back to
+ * where it started.
+ */
+function wouldCreateCycle(
+  db: DatabaseSync,
+  blockerId: string,
+  blockedId: string,
+  excludeEdgeId?: string
+): boolean {
+  if (blockerId === blockedId) return true;
+  const adjacency = new Map<string, string[]>();
+  for (const edge of edgeQueries.listEdges(db)) {
+    if (edge.id === excludeEdgeId) continue;
+    const pair = blockingPair(edge);
+    if (!pair) continue;
+    const list = adjacency.get(pair.blockerId);
+    if (list) list.push(pair.blockedId);
+    else adjacency.set(pair.blockerId, [pair.blockedId]);
+  }
+  const stack = [blockedId];
+  const visited = new Set<string>();
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (id === blockerId) return true;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    for (const nextId of adjacency.get(id) ?? []) stack.push(nextId);
+  }
+  return false;
+}
+
 export function createEdge(db: DatabaseSync, input: z.infer<typeof createEdgeSchema>) {
   getNodeOrThrow(db, input.sourceId);
   getNodeOrThrow(db, input.targetId);
@@ -47,6 +90,9 @@ export function createEdge(db: DatabaseSync, input: z.infer<typeof createEdgeSch
       if (existingPair && existingPair.blockerId === newPair.blockedId && existingPair.blockedId === newPair.blockerId) {
         edgeQueries.deleteEdge(db, edge.id);
       }
+    }
+    if (wouldCreateCycle(db, newPair.blockerId, newPair.blockedId)) {
+      throw new HttpError(409, "circular_dependency", "This would create a circular dependency chain.");
     }
   } else if (SYMMETRIC_RELATIONSHIP_TYPES.includes(input.relationshipType)) {
     for (const edge of edgeQueries.getEdgesBetween(db, input.sourceId, input.targetId)) {
@@ -71,6 +117,16 @@ export function createEdge(db: DatabaseSync, input: z.infer<typeof createEdgeSch
 }
 
 export function updateEdge(db: DatabaseSync, id: string, input: z.infer<typeof updateEdgeSchema>) {
+  const existing = edgeQueries.getEdge(db, id);
+  if (!existing) throw new HttpError(404, "not_found", `Edge ${id} not found`);
+
+  if (input.relationshipType) {
+    const newPair = blockingPair({ ...existing, relationshipType: input.relationshipType });
+    if (newPair && wouldCreateCycle(db, newPair.blockerId, newPair.blockedId, id)) {
+      throw new HttpError(409, "circular_dependency", "This would create a circular dependency chain.");
+    }
+  }
+
   const edge = edgeQueries.updateEdge(db, id, input);
   if (!edge) throw new HttpError(404, "not_found", `Edge ${id} not found`);
   return edge;

@@ -32,6 +32,24 @@ export interface RFNodeData extends Record<string, unknown> {
   status: NodeStatus;
   nodeType: NodeType;
   metadata: NodeMetadata;
+  /**
+   * UI-only rollup of dependent task/POA&M-type counts upstream of this
+   * node in the "blocks" chain, keyed by node type id — computed fresh by
+   * GraphCanvas (see computeDependencyRollups) on every nodes/edges change,
+   * never persisted or round-tripped through the server. Only set for
+   * Project/Task-type nodes; see GraphNodeCard's rollup tabs.
+   */
+  dependencyCounts?: Record<string, number>;
+  /**
+   * UI-only, set only while the map filter is active (see filterStore) —
+   * how many hidden nodes sit off this tile's left (upstream/blocker) or
+   * right (downstream/blocked) side with no visible node of their own to
+   * bridge to, so filtering them out would otherwise leave zero trace (a
+   * hidden run *between* two still-visible tiles gets a bridge edge
+   * instead — see filterGraphForDisplay/collapseHiddenNodes). Computed
+   * fresh by GraphCanvas on every filter change, never persisted.
+   */
+  filteredCounts?: { upstream: number; downstream: number };
 }
 
 export interface RFEdgeData extends Record<string, unknown> {

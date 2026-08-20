@@ -8,7 +8,7 @@ A visual dependency map for projects, tasks, and POA&Ms. Add your work as tiles,
 
 - **Map dependencies visually.** Create Projects, Tasks, POA&Ms — or your own custom types — and connect them to show what depends on what.
 - **Auto-arranging layout.** Add or rewire a dependency and the graph re-lays itself out to stay readable; switch to manual mode any time to position tiles by hand.
-- **Edit in place.** Click a tile to expand and edit it, drag one tile onto another to link them, filter the map by type or POA&M severity.
+- **Edit in place.** Click a tile to expand and edit it, drag one tile onto another to link them, filter the map by type or POA&M inherent risk.
 - **Local and private.** No account, no cloud — everything is served from your own machine and stored in a local SQLite file.
 
 ## Quick start

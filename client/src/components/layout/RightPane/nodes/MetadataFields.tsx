@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { NodeType } from "@independance/shared";
 import { SEVERITY_LEVELS } from "../../../../constants/severity";
 import styles from "./NodeCardForm.module.css";
@@ -9,18 +10,27 @@ export interface MetadataFormValues {
   owner?: string;
   targetDate?: string;
   tags?: string;
+  control?: string;
   severity?: string;
+  residualRisk?: string;
   poc?: string;
-  controlRefs?: string;
+  nextMilestoneDate?: string;
 }
 
 interface MetadataFieldsProps {
   type: NodeType;
   values: MetadataFormValues;
   onChange: (values: MetadataFormValues) => void;
+  /**
+   * The pre-rendered Status field (see NodeCardForm) — every type but
+   * POA&M renders it up front instead, ahead of this component entirely,
+   * so it's only actually placed here for poam's own field order (Control,
+   * Status, Inherent Risk, Residual Risk, POC, Next milestone date).
+   */
+  statusField: ReactNode;
 }
 
-export function MetadataFields({ type, values, onChange }: MetadataFieldsProps) {
+export function MetadataFields({ type, values, onChange, statusField }: MetadataFieldsProps) {
   function set<K extends keyof MetadataFormValues>(key: K, value: string) {
     onChange({ ...values, [key]: value });
   }
@@ -72,7 +82,16 @@ export function MetadataFields({ type, values, onChange }: MetadataFieldsProps) 
     return (
       <>
         <label className={styles.field}>
-          <span>Severity</span>
+          <span>Control</span>
+          <input
+            placeholder="e.g. AC-2(4)"
+            value={values.control ?? ""}
+            onChange={(e) => set("control", e.target.value)}
+          />
+        </label>
+        {statusField}
+        <label className={styles.field}>
+          <span>Inherent Risk</span>
           <select value={values.severity ?? ""} onChange={(e) => set("severity", e.target.value)}>
             <option value="">—</option>
             {SEVERITY_LEVELS.map((level) => (
@@ -83,16 +102,27 @@ export function MetadataFields({ type, values, onChange }: MetadataFieldsProps) 
           </select>
         </label>
         <label className={styles.field}>
-          <span>Due date</span>
-          <input type="date" value={values.dueDate ?? ""} onChange={(e) => set("dueDate", e.target.value)} />
+          <span>Residual Risk</span>
+          <select value={values.residualRisk ?? ""} onChange={(e) => set("residualRisk", e.target.value)}>
+            <option value="">—</option>
+            {SEVERITY_LEVELS.map((level) => (
+              <option key={level.value} value={level.value}>
+                {level.label}
+              </option>
+            ))}
+          </select>
         </label>
         <label className={styles.field}>
           <span>POC</span>
           <input value={values.poc ?? ""} onChange={(e) => set("poc", e.target.value)} />
         </label>
         <label className={styles.field}>
-          <span>Control refs (comma separated)</span>
-          <input value={values.controlRefs ?? ""} onChange={(e) => set("controlRefs", e.target.value)} />
+          <span>Next milestone date</span>
+          <input
+            type="date"
+            value={values.nextMilestoneDate ?? ""}
+            onChange={(e) => set("nextMilestoneDate", e.target.value)}
+          />
         </label>
       </>
     );
