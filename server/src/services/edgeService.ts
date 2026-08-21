@@ -83,6 +83,16 @@ export function createEdge(db: DatabaseSync, input: z.infer<typeof createEdgeSch
   getNodeOrThrow(db, input.sourceId);
   getNodeOrThrow(db, input.targetId);
 
+  // blockingPair (and so wouldCreateCycle, below) only ever runs for
+  // blocks/depends_on — relates_to and remediates skip it entirely, which
+  // used to let a node link to itself under those two types (sourceId ===
+  // targetId sailed straight through, since there was no directional
+  // "blocking" pair to walk). A self-loop isn't meaningful for any
+  // relationship type, so it's rejected here, before branching by type.
+  if (input.sourceId === input.targetId) {
+    throw new HttpError(409, "self_loop", "An item can't be linked to itself.");
+  }
+
   const newPair = blockingPair(input);
   if (newPair) {
     for (const edge of edgeQueries.getEdgesBetween(db, input.sourceId, input.targetId)) {

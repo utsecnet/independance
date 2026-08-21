@@ -104,3 +104,26 @@
   background: var(--border);
   margin: 8px 14px;
 }
+
+.footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding: 8px 14px;
+  text-align: center;
+}
+
+.versionLink {
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.versionLink:hover {
+  color: var(--accent-cyan);
+}

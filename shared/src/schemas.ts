@@ -21,7 +21,11 @@ export const positionSchema = z.object({
 export const createNodeSchema = z.object({
   id: z.string().uuid(),
   type: nodeTypeSchema,
-  title: z.string().min(1),
+  // Empty is allowed — a brand new tile starts with no title at all (the
+  // create flow opens straight into the edit form with the title field
+  // empty and focused) rather than a placeholder like "New Task" the user
+  // has to notice and clear first.
+  title: z.string(),
   description: z.string().optional(),
   status: nodeStatusSchema.optional(),
   metadata: nodeMetadataSchema.default({}),
@@ -29,7 +33,17 @@ export const createNodeSchema = z.object({
 });
 
 export const updateNodeSchema = z.object({
-  title: z.string().min(1).optional(),
+  // Also empty-allowed, same as createNodeSchema's title, and for a
+  // connected reason: a brand new tile's title starts as "" (see above),
+  // so the *first* edit a user ever makes to it has "" as its undo
+  // snapshot — requiring a minimum length here would make undoing that
+  // first edit fail server-side (title.min(1) rejecting the very state
+  // undo needs to restore), while every UI path that actually lets a user
+  // *save* a title already refuses to submit an empty one client-side
+  // (see NodeCardForm's persistEdit/handleEnterSave) — this only ever
+  // needs to accept "" for undo/redo's own internal restores, never for
+  // anything a person directly typed and confirmed.
+  title: z.string().optional(),
   description: z.string().optional(),
   status: nodeStatusSchema.optional(),
   metadata: nodeMetadataSchema.optional(),

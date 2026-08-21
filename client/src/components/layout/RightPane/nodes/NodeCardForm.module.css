@@ -79,23 +79,22 @@
   min-height: 50px;
 }
 
-.row {
-  display: flex;
-  gap: 8px;
-}
-
-.row > .field {
-  flex: 1;
-}
-
 .actions {
   display: flex;
   gap: 8px;
   margin-top: 4px;
 }
 
+/* Both action buttons sit on the card's own type-color-tinted background
+   (see GraphNodeCard's .card), which varies per node type — a transparent
+   button relying only on a fixed border color could end up nearly
+   invisible against a similarly-toned tint. A solid --surface-raised
+   background (the same token dropdowns/menus use for the same reason —
+   needs to read clearly regardless of whatever's behind it) guarantees
+   contrast against the border and text regardless of which type's color
+   the card happens to be tinted with. */
 .danger {
-  background: none;
+  background: var(--surface-raised);
   color: var(--accent-magenta);
   border: 1px solid var(--accent-magenta-dim);
   border-radius: 6px;
@@ -110,7 +109,7 @@
 
 .secondary {
   flex: 1;
-  background: none;
+  background: var(--surface-raised);
   color: var(--text-dim);
   border: 1px solid var(--border);
   border-radius: 6px;

@@ -41,8 +41,13 @@ function formatExtraFieldValue(fieldId: TileFieldId, data: RFNodeData): string |
 
 export function GraphNodeCard({ id, data }: NodeProps<GraphRFNode>) {
   const dropHover = useDragLinkStore((s) => (s.dropHover?.targetId === id ? s.dropHover.half : null));
-  const isExpanded = useGraphStore((s) => s.selectedId === id);
-  const selectNode = useGraphStore((s) => s.selectNode);
+  const isExpanded = useGraphStore((s) => s.editingId === id);
+  // Highlight-only state: a plain tile click sets this without opening the
+  // edit form (see GraphCanvas's onNodeClick) — the pencil icon below is
+  // the only thing on the card itself that opens editing.
+  const isSelected = useGraphStore((s) => s.selectedId === id);
+  const startEditing = useGraphStore((s) => s.startEditing);
+  const stopEditing = useGraphStore((s) => s.stopEditing);
   const updateNode = useGraphStore((s) => s.updateNode);
   const typeConfig = useConfigStore((s) => s.nodeTypes.find((t) => t.id === data.nodeType));
   const statusConfig = useConfigStore((s) =>
@@ -160,7 +165,7 @@ export function GraphNodeCard({ id, data }: NodeProps<GraphRFNode>) {
 
   return (
     <div
-      className={`${styles.card} ${isExpanded ? styles.expanded : ""}`}
+      className={`${styles.card} ${isExpanded ? styles.expanded : isSelected ? styles.selected : ""} ${data.dimmed ? styles.dimmed : ""}`}
       style={
         {
           borderLeftColor: typeConfig?.color ?? "var(--border)",
@@ -175,6 +180,35 @@ export function GraphNodeCard({ id, data }: NodeProps<GraphRFNode>) {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
+      {/* Hover-revealed (same `hovered` state QuickAddButton uses), opens
+          the full edit form without going through the collapsed card's own
+          click handler (see GraphCanvas's onNodeClick) — a plain click
+          anywhere else on the tile only selects/highlights it now. Both
+          onClick AND onPointerDown need stopping, same as the status
+          <select> below: onPaneClick/onNodeClick fire off the pointerdown
+          that starts the click, so stopping propagation only on the click
+          event itself is too late — onPaneClick had already reset
+          selectedId to null out from under startEditing's own set() by the
+          time it ran, which is what broke the always-on-top z-index boost
+          (that boost keys off selectedId — see GraphCanvas). */}
+      {!isExpanded && (
+        <button
+          type="button"
+          className={`${styles.editButton} ${hovered ? styles.show : ""} nodrag`}
+          onClick={(e) => {
+            e.stopPropagation();
+            startEditing(id);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          aria-label="Edit tile"
+          title="Edit tile"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+          </svg>
+        </button>
+      )}
       {!isExpanded && rollupTabs.length > 0 && (
         <div className={styles.rollupTabs}>
           {rollupTabs.map((t) => (
@@ -227,7 +261,7 @@ export function GraphNodeCard({ id, data }: NodeProps<GraphRFNode>) {
       {!isExpanded && <QuickAddButton nodeId={id} axis="left" hoveredBlocksNew={false} visible={hovered} />}
 
       {isExpanded ? (
-        <NodeCardForm id={id} data={data} onClose={() => selectNode(null)} />
+        <NodeCardForm id={id} data={data} onClose={stopEditing} />
       ) : (
         <>
           {showType && <div className={styles.typeLabel}>{typeConfig?.label ?? data.nodeType}</div>}

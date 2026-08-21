@@ -106,8 +106,9 @@ export function QuickAddButton({ nodeId, axis, hoveredBlocksNew, visible }: Quic
         position = { x, y: findFreeRow(nodes, x, anchor.position.y) };
       }
     }
-    const label = nodeTypes.find((t) => t.id === type)?.label ?? type;
-    const created = await createNode({ type, title: `New ${label}`, position });
+    // No title — the new tile opens straight into its edit form with the
+    // title field empty and focused (see NodeCardForm).
+    const created = await createNode({ type, title: "", position });
 
     if (hoveredBlocksNew) {
       await createEdge(nodeId, created.id, "blocks");

@@ -201,7 +201,7 @@ interface RelationshipsTabProps {
 
 export function RelationshipsTab({ nodeId }: RelationshipsTabProps) {
   const { blocks, blockedBy, availableToAdd } = useNodeRelationships(nodeId);
-  const selectNode = useGraphStore((s) => s.selectNode);
+  const startEditing = useGraphStore((s) => s.startEditing);
   const createEdge = useGraphStore((s) => s.createEdge);
 
   return (
@@ -211,7 +211,7 @@ export function RelationshipsTab({ nodeId }: RelationshipsTabProps) {
         issues={blocks}
         emptyText="This item doesn't block anything."
         candidates={availableToAdd}
-        onSelectIssue={selectNode}
+        onSelectIssue={startEditing}
         onAddIssue={(id) => createEdge(nodeId, id, "blocks")}
       />
       <RelationshipSection
@@ -219,7 +219,7 @@ export function RelationshipsTab({ nodeId }: RelationshipsTabProps) {
         issues={blockedBy}
         emptyText="Nothing is blocking this item."
         candidates={availableToAdd}
-        onSelectIssue={selectNode}
+        onSelectIssue={startEditing}
         onAddIssue={(id) => createEdge(id, nodeId, "blocks")}
       />
     </div>

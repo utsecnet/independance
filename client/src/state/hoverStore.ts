@@ -8,6 +8,18 @@ interface HoverState {
    * one's buttons immediately instead of waiting out its own hide delay
    * (see GraphNodeCard's hideTimer): only one tile's + buttons should ever
    * be visible at once.
+   *
+   * Tile hover only — edges have their own, separate store (see
+   * edgeHoverStore.ts). They used to share this one, keyed by whichever id
+   * (node or edge) last called setHovered — but a tile's quick-add button
+   * sits right where its own connecting edge visually runs (see
+   * QuickAddButton's -34px offset), so the cursor crossing that edge's
+   * wide hit-area on the way to the button (see InsertableEdge's .hitArea)
+   * would overwrite this with the edge's id mid-transit, instantly hiding
+   * the tile's own buttons before the click ever landed — the edge's own
+   * insert button would appear in their place instead. Splitting the two
+   * concerns into independent stores means grazing an edge can never blank
+   * out a tile's hover state, or vice versa.
    */
   hoveredId: string | null;
   setHovered: (id: string) => void;

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useConfigStore } from "../../../state/configStore";
 import { useGraphStore } from "../../../state/store";
+import { CURRENT_VERSION } from "../VersionHistory/versionHistory";
 import styles from "./LeftRail.module.css";
 
 function ChevronIcon({ open }: { open: boolean }) {
@@ -45,6 +46,7 @@ interface LeftRailProps {
   /** A node type id, "settings", or null if no blade is open. */
   activeGroup: string | null;
   onSelectGroup: (group: string) => void;
+  onOpenVersionHistory: () => void;
 }
 
 // The far-left, always-present nav: collapsed it's just a narrow bar with
@@ -53,7 +55,7 @@ interface LeftRailProps {
 // drives which of ItemsBlade/SettingsBlade slides out over the canvas
 // (see App.tsx), the same way the old standalone gear button used to just
 // toggle SettingsBlade.
-export function LeftRail({ open, onToggle, activeGroup, onSelectGroup }: LeftRailProps) {
+export function LeftRail({ open, onToggle, activeGroup, onSelectGroup, onOpenVersionHistory }: LeftRailProps) {
   const nodeTypes = useConfigStore((s) => s.nodeTypes);
   const nodes = useGraphStore((s) => s.nodes);
 
@@ -101,6 +103,14 @@ export function LeftRail({ open, onToggle, activeGroup, onSelectGroup }: LeftRai
           >
             <GearIcon />
             <span className={styles.groupLabel}>Settings</span>
+          </button>
+        </div>
+      )}
+
+      {open && (
+        <div className={styles.footer}>
+          <button type="button" className={styles.versionLink} onClick={onOpenVersionHistory}>
+            {CURRENT_VERSION}
           </button>
         </div>
       )}

@@ -1,0 +1,96 @@
+/* Wide, invisible on top of the real (thin) edge path — hovering the
+   visible line alone is too narrow a target, same rationale as every other
+   hit-testing overlay path in React Flow's own custom-edge examples. */
+.hitArea {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 24px;
+  cursor: pointer;
+}
+
+.wrapper {
+  position: absolute;
+  z-index: 15;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.wrapper.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--accent-cyan);
+  color: var(--bg);
+  border: 2px solid var(--surface);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.button:hover {
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+}
+
+/* Portaled to <body> (see InsertableEdge.tsx, mirrors QuickAddButton's own
+   identical rationale) so the menu always paints above every tile and edge
+   regardless of DOM order or transformed stacking contexts. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.menu {
+  position: fixed;
+  z-index: 41;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 13px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menuItem:hover {
+  background: var(--surface);
+  color: var(--text-h);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}

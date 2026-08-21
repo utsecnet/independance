@@ -105,6 +105,25 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
   const [activeTab, setActiveTab] = useState<Tab>("Details");
 
   const skipNextAutosave = useRef(true);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  // A brand new tile opens with no title at all (see createNode's callers),
+  // straight into this form — so an empty title here means this card just
+  // opened *because* the tile was just created, not because it was reopened
+  // for editing, and that's the one case worth landing the cursor in Title
+  // automatically. Neither a plain autoFocus prop nor an immediate .focus()
+  // call in an effect actually lands it, though — same root cause as the
+  // fitView delay in GraphCanvas: a newly added React Flow node isn't fully
+  // measured/attached in the same tick its card opens, so .focus() on it is
+  // silently dropped as not-yet-focusable. The same short delay used there
+  // works here too. Checked only once, at mount — data.title is
+  // intentionally not a dependency, since deleting the title back to empty
+  // while editing an existing tile shouldn't suddenly steal focus back to it.
+  useEffect(() => {
+    if (data.title !== "") return;
+    const timer = setTimeout(() => titleInputRef.current?.focus(), 60);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const isDirty = useRef(false);
   // Unlike isDirty (cleared the moment an autosave lands), this never resets
   // once set — it's what Escape checks to decide whether there's anything
@@ -247,7 +266,13 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
 
   return (
     <form
-      className={`${styles.form} nodrag`}
+      // nodrag alone only opts out of *node* dragging — with tiles
+      // undraggable in Auto mode (see GraphCanvas's nodesDraggable), a
+      // click-drag starting inside a text field (e.g. selecting text) had
+      // nothing left to claim it, so it fell through to React Flow's pane
+      // gesture and panned the whole canvas instead. nopan is the separate
+      // class that opts out of that.
+      className={`${styles.form} nodrag nopan`}
       onClick={(e) => e.stopPropagation()}
       onSubmit={(e) => e.preventDefault()}
     >
@@ -274,7 +299,7 @@ export function NodeCardForm({ id, data, onClose }: NodeCardFormProps) {
           {type !== "poam" && statusField}
           <label className={styles.field}>
             <span>Title</span>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} required />
+            <input ref={titleInputRef} value={title} onChange={(e) => setTitle(e.target.value)} required />
           </label>
           <label className={styles.field}>
             <span>Description</span>

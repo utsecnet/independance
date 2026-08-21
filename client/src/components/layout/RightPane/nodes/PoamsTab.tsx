@@ -16,7 +16,7 @@ interface PoamsTabProps {
 export function PoamsTab({ nodeId }: PoamsTabProps) {
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
-  const selectNode = useGraphStore((s) => s.selectNode);
+  const startEditing = useGraphStore((s) => s.startEditing);
   const poamType = useConfigStore((s) => s.nodeTypes.find((t) => t.id === "poam"));
   const statuses = useConfigStore((s) => s.statuses);
 
@@ -48,7 +48,7 @@ export function PoamsTab({ nodeId }: PoamsTabProps) {
                 poam.data.status;
               return (
                 <li key={poam.id}>
-                  <button type="button" className={styles.item} onClick={() => selectNode(poam.id)}>
+                  <button type="button" className={styles.item} onClick={() => startEditing(poam.id)}>
                     <span className={styles.dot} style={{ background: poamType?.color ?? "var(--border)" }} />
                     <span className={styles.itemTitle}>{poamListLabel(poam.data.title, poam.data.metadata)}</span>
                     <span className={styles.itemType}>{statusLabel}</span>

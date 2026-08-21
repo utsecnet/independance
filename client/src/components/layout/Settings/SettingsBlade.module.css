@@ -83,15 +83,6 @@
   padding: 20px 24px;
 }
 
-.footer {
-  flex-shrink: 0;
-  border-top: 1px solid var(--border);
-  padding: 8px 24px;
-  font-size: 11px;
-  color: var(--text-dim);
-  text-align: center;
-}
-
 .section {
   max-width: 100%;
 }

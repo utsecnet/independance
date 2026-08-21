@@ -81,9 +81,69 @@
   width: auto;
   overflow: visible;
   border-color: var(--accent-cyan);
-  box-shadow: 0 0 0 2px var(--accent-cyan-dim);
+  box-shadow: var(--selected-glow);
   padding: 14px;
   cursor: default;
+}
+
+/* Highlight-only state (see GraphNodeCard's isSelected) — same glow as
+   .expanded, minus the width/padding changes, since the card is still
+   showing its collapsed view. */
+.card.selected {
+  border-color: var(--accent-cyan);
+  box-shadow: var(--selected-glow);
+}
+
+/* Selecting a tile highlights its whole dependency chain (see GraphCanvas's
+   chain memo) — everything *not* on that chain fades instead of being
+   hidden outright, so the rest of the map stays as context rather than
+   vanishing. Transition matches the edit/quick-add buttons' own timing for
+   a consistent feel. Never combined with .selected/.expanded — a tile is
+   always part of its own chain, so it's never dimmed and selected at once. */
+.card.dimmed {
+  opacity: 0.3;
+  transition: opacity 0.15s ease;
+}
+
+/* Hover-revealed pencil icon, top-right corner — same show/hide timing as
+   QuickAddButton (driven by the same `hovered` state), opens the edit form
+   without also triggering the tile's own click-to-select handler. */
+.editButton {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 15;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.editButton.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.editButton:hover {
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+}
+
+.editButton svg {
+  width: 12px;
+  height: 12px;
 }
 
 .typeLabel {

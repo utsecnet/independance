@@ -26,6 +26,22 @@
   margin-bottom: 6px;
 }
 
+/* Ghost outline shown at wherever a manually-dragged tile would actually
+   land if released right now (see GraphCanvas's snapPreview state) —
+   positioned via ViewportPortal, so this already lives in flow coordinate
+   space and needs no z-index games against tiles the way a screen-space
+   overlay would. pointer-events: none so it never intercepts the drag
+   itself or anything the cursor passes over while dragging. */
+.snapPreview {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 2px dashed var(--accent-cyan);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent-cyan) 10%, transparent);
+  pointer-events: none;
+}
+
 .watermark {
   position: absolute;
   bottom: 8px;

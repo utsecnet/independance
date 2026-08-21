@@ -13,8 +13,6 @@ import styles from "./SettingsBlade.module.css";
 
 const TABS = ["Types & Statuses", "Appearance"];
 
-const APP_VERSION = "v2026.1.0";
-
 // Title is unconditionally rendered on every tile (see ALWAYS_ON_TILE_FIELDS)
 // rather than being part of the toggleable TILE_FIELD_DEFS list — listed
 // here purely so Appearance's field picker can show it, checked and locked,
@@ -364,7 +362,6 @@ export function SettingsBlade({ open, onClose }: SettingsBladeProps) {
         {activeTab === "Types & Statuses" && <TypesStatusesSettings />}
         {activeTab === "Appearance" && <AppearanceSettings />}
       </div>
-      <div className={styles.footer}>{APP_VERSION}</div>
     </div>
   );
 }

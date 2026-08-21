@@ -50,6 +50,13 @@ export interface RFNodeData extends Record<string, unknown> {
    * fresh by GraphCanvas on every filter change, never persisted.
    */
   filteredCounts?: { upstream: number; downstream: number };
+  /**
+   * UI-only — set on every node whenever some tile is selected and this
+   * one isn't part of its dependency chain (see GraphCanvas's chain memo
+   * and collectDependencyChain), so GraphNodeCard can fade it out of a
+   * focused view. Always false while nothing is selected. Never persisted.
+   */
+  dimmed?: boolean;
 }
 
 export interface RFEdgeData extends Record<string, unknown> {
@@ -122,6 +129,12 @@ function relationshipTypeForHandles(
 function toRFEdge(edge: GraphEdge): GraphRFEdge {
   return {
     id: edge.id,
+    // A real, persisted edge — as opposed to a synthetic "bridge" edge
+    // filterGraphForDisplay draws across a run of filtered-out nodes, which
+    // has no real edge id behind it to splice a tile into and is built
+    // through a separate code path that never calls this function at all.
+    // InsertableEdge reads this to decide whether to offer its hover "+".
+    type: "insertable",
     source: edge.sourceId,
     target: edge.targetId,
     data: { relationshipType: edge.relationshipType, label: edge.label },
@@ -200,7 +213,19 @@ const MAX_HISTORY = 50;
 interface GraphState {
   nodes: GraphRFNode[];
   edges: GraphRFEdge[];
+  // Highlighted (border/glow), but still showing the collapsed card — set
+  // by clicking the tile itself, the Left Rail, or a relationship/POA&M
+  // list entry. Independent of editingId: a tile can be selected without
+  // its edit form open, and (via startEditing) is always also selected
+  // while its edit form *is* open.
   selectedId: string | null;
+  // Which tile's card is showing its full edit form (NodeCardForm) in
+  // place of the collapsed view — set by the pencil icon (see
+  // GraphNodeCard), or by any entry point that means "select and show me
+  // its details" (Left Rail, POA&M/relationship list clicks, a freshly
+  // created tile). A plain tile click only ever sets selectedId, never
+  // this — see rule below.
+  editingId: string | null;
   status: "idle" | "loading" | "ready" | "error";
   error: string | null;
   /**
@@ -219,6 +244,8 @@ interface GraphState {
   onNodesDelete: (nodes: GraphRFNode[]) => Promise<void>;
   onEdgesDelete: (edges: GraphRFEdge[]) => Promise<void>;
   selectNode: (id: string | null) => void;
+  startEditing: (id: string) => void;
+  stopEditing: () => void;
   clearError: () => void;
 
   createNode: (input: {
@@ -232,6 +259,18 @@ interface GraphState {
   updateNode: (id: string, patch: UpdateNodePayload) => Promise<void>;
   deleteNode: (id: string) => Promise<void>;
   createEdge: (sourceId: string, targetId: string, relationshipType?: RelationshipType) => Promise<void>;
+  /**
+   * Splices a brand new tile into an existing edge: the edge's source now
+   * blocks (or depends on, matching whatever the original edge's own
+   * relationshipType already meant) the new tile instead of the original
+   * target, and the new tile takes over blocking the original target — one
+   * edge becomes a new tile plus two, never three tiles all still directly
+   * linked. `position` is only meaningful in manual mode (see InsertableEdge,
+   * which computes the midpoint between the edge's two endpoints); ignored
+   * in auto mode, where arrangeGraph places every tile itself regardless of
+   * whatever this was set to.
+   */
+  insertNodeOnEdge: (edgeId: string, type: NodeType, position?: { x: number; y: number }) => Promise<void>;
   /**
    * Recomputes every node's position from the current graph shape (see
    * arrangeNodes in layout.ts) and persists whatever moved. A no-op in
@@ -354,6 +393,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       nodes,
       edges: graph.edges.map(toRFEdge),
       selectedId: nodes.some((n) => n.id === get().selectedId) ? get().selectedId : null,
+      editingId: nodes.some((n) => n.id === get().editingId) ? get().editingId : null,
     });
     await get().arrangeGraph();
   }
@@ -406,6 +446,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
   nodes: [],
   edges: [],
   selectedId: null,
+  editingId: null,
   status: "idle",
   error: null,
   placementMode: "auto",
@@ -472,6 +513,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
     if (nodesToDelete.some((n) => n.id === get().selectedId)) {
       set({ selectedId: null });
     }
+    if (nodesToDelete.some((n) => n.id === get().editingId)) {
+      set({ editingId: null });
+    }
     pushHistory(ops);
     await get().arrangeGraph();
   },
@@ -498,6 +542,15 @@ export const useGraphStore = create<GraphState>((set, get) => {
   },
 
   selectNode: (id) => set({ selectedId: id }),
+  // Editing always implies selected too — see editingId's own doc comment
+  // on why this pairing exists (zIndex boost, fitView, Delete-key target
+  // all key off selectedId, and should keep working the same way whether
+  // a tile got there via a plain click or the pencil icon).
+  startEditing: (id) => set({ editingId: id, selectedId: id }),
+  // Leaves selectedId alone — closing the edit form goes back to "selected
+  // but collapsed," not fully deselected, since the user was just working
+  // on this exact tile.
+  stopEditing: () => set({ editingId: null }),
   clearError: () => set({ error: null }),
 
   createNode: async (input) => {
@@ -523,7 +576,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
     };
     const created = await nodesApi.create(payload);
     const rfNode = toRFNode(created);
-    set({ nodes: [...get().nodes, rfNode], selectedId: rfNode.id });
+    // New tile opens straight into its edit form (see NodeCardForm's
+    // auto-focus-title effect) — plain selection alone wouldn't show it.
+    set({ nodes: [...get().nodes, rfNode], selectedId: rfNode.id, editingId: rfNode.id });
     pushHistory([{ kind: "createNode", node: snapshotNode(rfNode) }]);
     await get().arrangeGraph();
     return get().nodes.find((n) => n.id === rfNode.id) ?? rfNode;
@@ -560,14 +615,61 @@ export const useGraphStore = create<GraphState>((set, get) => {
   deleteNode: async (id) => {
     const node = get().nodes.find((n) => n.id === id);
     const attachedEdges = get().edges.filter((e) => e.source === id || e.target === id);
+
+    // Reconnect around the gap this deletion leaves in any blocking chain:
+    // for every tile that blocked `id` and every tile `id` blocked, wire a
+    // direct edge between them (mirrors the same blocks/depends_on
+    // normalization RelationshipsTab's own hook uses) so removing a
+    // mid-chain tile doesn't just sever the chain in two — it splices back
+    // together, the same way inserting a tile splices apart. Only
+    // blocks/depends_on carry that chain meaning; relates_to/remediates
+    // links to this tile are simply gone, same as before.
+    const blockerIds = new Set<string>();
+    const blockedIds = new Set<string>();
+    for (const edge of attachedEdges) {
+      const relationshipType = edge.data?.relationshipType;
+      if (relationshipType === "blocks") {
+        if (edge.target === id) blockerIds.add(edge.source);
+        if (edge.source === id) blockedIds.add(edge.target);
+      } else if (relationshipType === "depends_on") {
+        if (edge.source === id) blockerIds.add(edge.target);
+        if (edge.target === id) blockedIds.add(edge.source);
+      }
+    }
+
     await nodesApi.remove(id);
+
+    const reconnected: GraphRFEdge[] = [];
+    for (const blockerId of blockerIds) {
+      for (const blockedId of blockedIds) {
+        try {
+          const created = await edgesApi.create({
+            id: crypto.randomUUID(),
+            sourceId: blockerId,
+            targetId: blockedId,
+            relationshipType: "blocks",
+          });
+          reconnected.push(toRFEdge(created));
+        } catch (err) {
+          // Already connected some other way (e.g. a direct edge existed
+          // alongside the indirect path through the deleted tile) — leaving
+          // that alone is correct, nothing to reconnect.
+          if (!(err instanceof ApiError && err.status === 409)) throw err;
+        }
+      }
+    }
+
     set({
       nodes: get().nodes.filter((n) => n.id !== id),
-      edges: get().edges.filter((e) => e.source !== id && e.target !== id),
+      edges: [...get().edges.filter((e) => e.source !== id && e.target !== id), ...reconnected],
       selectedId: get().selectedId === id ? null : get().selectedId,
+      editingId: get().editingId === id ? null : get().editingId,
     });
     if (node) {
-      pushHistory([{ kind: "deleteNode", node: snapshotNode(node), edges: attachedEdges.map(snapshotEdge) }]);
+      pushHistory([
+        { kind: "deleteNode", node: snapshotNode(node), edges: attachedEdges.map(snapshotEdge) },
+        ...reconnected.map((e): AtomicOp => ({ kind: "createEdge", edge: snapshotEdge(e), replaced: null })),
+      ]);
     }
     await get().arrangeGraph();
   },
@@ -600,6 +702,71 @@ export const useGraphStore = create<GraphState>((set, get) => {
       await get().arrangeGraph();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : "Failed to create edge" });
+    }
+  },
+
+  insertNodeOnEdge: async (edgeId, type, position) => {
+    const edge = get().edges.find((e) => e.id === edgeId);
+    if (!edge) return;
+    const relationshipType = edge.data!.relationshipType;
+    try {
+      const createdNode = await nodesApi.create({
+        id: crypto.randomUUID(),
+        type,
+        title: "",
+        metadata: {},
+        position: position ?? { x: 0, y: 0 },
+      });
+      await edgesApi.remove(edge.id);
+      const createdEdge1 = await edgesApi.create({
+        id: crypto.randomUUID(),
+        sourceId: edge.source,
+        targetId: createdNode.id,
+        relationshipType,
+      });
+      const createdEdge2 = await edgesApi.create({
+        id: crypto.randomUUID(),
+        sourceId: createdNode.id,
+        targetId: edge.target,
+        relationshipType,
+      });
+
+      const rfNode = toRFNode(createdNode);
+      set({
+        nodes: [...get().nodes, rfNode],
+        edges: [...get().edges.filter((e) => e.id !== edge.id), toRFEdge(createdEdge1), toRFEdge(createdEdge2)],
+        selectedId: rfNode.id,
+        editingId: rfNode.id,
+      });
+      pushHistory([
+        { kind: "createNode", node: snapshotNode(rfNode) },
+        { kind: "deleteEdge", edge: snapshotEdge(edge) },
+        {
+          kind: "createEdge",
+          edge: {
+            id: createdEdge1.id,
+            sourceId: createdEdge1.sourceId,
+            targetId: createdEdge1.targetId,
+            relationshipType: createdEdge1.relationshipType,
+            label: createdEdge1.label,
+          },
+          replaced: null,
+        },
+        {
+          kind: "createEdge",
+          edge: {
+            id: createdEdge2.id,
+            sourceId: createdEdge2.sourceId,
+            targetId: createdEdge2.targetId,
+            relationshipType: createdEdge2.relationshipType,
+            label: createdEdge2.label,
+          },
+          replaced: null,
+        },
+      ]);
+      await get().arrangeGraph();
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : "Failed to insert tile" });
     }
   },
 

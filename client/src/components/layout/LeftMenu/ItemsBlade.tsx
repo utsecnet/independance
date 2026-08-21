@@ -18,7 +18,7 @@ export function ItemsBlade({ typeId, onClose }: ItemsBladeProps) {
   const typeConfig = useConfigStore((s) => s.nodeTypes.find((t) => t.id === typeId));
   const statuses = useConfigStore((s) => s.statuses);
   const nodes = useGraphStore((s) => s.nodes);
-  const selectNode = useGraphStore((s) => s.selectNode);
+  const startEditing = useGraphStore((s) => s.startEditing);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -52,7 +52,7 @@ export function ItemsBlade({ typeId, onClose }: ItemsBladeProps) {
   // tile (see GraphCanvas's fitView-on-selectedId effect) isn't left
   // sitting behind the blade that just picked it.
   function handleSelect(id: string) {
-    selectNode(id);
+    startEditing(id);
     onClose();
   }
 

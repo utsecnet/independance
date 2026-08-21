@@ -30,6 +30,11 @@
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  /* A soft bloom surrounding the whole tile (see GraphNodeCard's .selected/
+     .expanded) rather than just a thin ring hugging the border — a crisp
+     1px outline for definition up close, plus a wide blurred halo that
+     actually reads as "glowing" from a normal zoomed-out map view. */
+  --selected-glow: 0 0 0 1px var(--accent-cyan), 0 0 20px 4px var(--accent-cyan-dim);
 
   color-scheme: dark;
 }
@@ -65,6 +70,7 @@
 
   --shadow-sm: 0 1px 3px rgba(30, 20, 50, 0.08);
   --shadow-md: 0 8px 24px rgba(30, 20, 50, 0.12);
+  --selected-glow: 0 0 0 1px var(--accent-cyan), 0 0 20px 4px var(--accent-cyan-dim);
 
   color-scheme: light;
 }
