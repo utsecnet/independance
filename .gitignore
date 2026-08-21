@@ -8,6 +8,10 @@ server/data/*.db
 server/data/*.db-journal
 server/data/*.db-wal
 server/data/*.db-shm
+portable_independance/data/*.db
+portable_independance/data/*.db-journal
+portable_independance/data/*.db-wal
+portable_independance/data/*.db-shm
 
 .env
 .env.local
