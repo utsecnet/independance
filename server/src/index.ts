@@ -19,6 +19,11 @@ const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 5175;
 
 const { app } = createApp({ dbPath });
 
-app.listen(port, () => {
+// Explicit host, not just a port — app.listen(port, cb) with no host binds
+// every interface (0.0.0.0), not just this machine, so without this the
+// unauthenticated API is reachable from anything else on the LAN despite
+// this being a single-user, local-only tool. 127.0.0.1 keeps it actually
+// local: only processes on this same machine can reach it.
+app.listen(port, "127.0.0.1", () => {
   console.log(`independance server listening on http://localhost:${port}`);
 });
