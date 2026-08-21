@@ -28068,7 +28068,7 @@ var dbPath = import_node_path3.default.join(dataDir, "independance.db");
 var parsedPort = process.env.PORT ? Number(process.env.PORT) : NaN;
 var port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 5175;
 var { app } = createApp({ dbPath });
-app.listen(port, () => {
+app.listen(port, "127.0.0.1", () => {
   console.log(`independance server listening on http://localhost:${port}`);
 });
 /*! Bundled license information:
