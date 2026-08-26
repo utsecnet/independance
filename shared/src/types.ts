@@ -4,6 +4,18 @@ export type NodeStatus = string;
 
 export type RelationshipType = "depends_on" | "blocks" | "relates_to" | "remediates";
 
+/**
+ * A named, independent graph within one install — its own nodes, edges,
+ * node types/statuses, and tileFields/placementMode settings. `theme` is
+ * the one exception: a pure cross-board UI preference, not board data, so
+ * it lives outside any board entirely.
+ */
+export interface BoardConfig {
+  id: string;
+  name: string;
+  sortOrder: number;
+}
+
 export interface NodeTypeConfig {
   id: string;
   label: string;
@@ -137,6 +149,83 @@ export const MAX_EXTRA_TILE_FIELDS = 3;
 // expanded in Settings > Appearance.
 export const DEFAULT_TILE_FIELDS: TileFieldId[] = ["type", "status"];
 
+// POA&M severity is a fixed 5-level scale (unlike node types/statuses, which
+// are user-configurable) — single source of truth shared by the metadata
+// form, the tile's severity badge, the map's severity filter, and the
+// server-side CSV import validator (see poamImportService), which is why
+// this lives in shared rather than client-only.
+export const SEVERITY_LEVELS = [
+  { value: "very_high", label: "Very High" },
+  { value: "high", label: "High" },
+  { value: "moderate", label: "Moderate" },
+  { value: "low", label: "Low" },
+  { value: "very_low", label: "Very Low" },
+] as const;
+
+export const SEVERITY_LABELS: Record<string, string> = Object.fromEntries(
+  SEVERITY_LEVELS.map((s) => [s.value, s.label])
+);
+
+/** Cap on rows accepted by a single POA&M CSV import request. */
+export const MAX_BULK_IMPORT_ROWS = 1000;
+
+/**
+ * Ordered CSV header <-> internal field mapping for POA&M import. Headers
+ * deliberately match the labels already shown on a POA&M tile/form (Control,
+ * Inherent Risk, Residual Risk, POC, Next Milestone Date come from
+ * TILE_FIELD_DEFS above; Title/Description/Status aren't in that list —
+ * Title is always-on and Description has no tile-field entry at all — so
+ * they're listed explicitly here instead) so a CSV a user builds by hand
+ * matches what they already see in the app, with no separate mapping step.
+ */
+export const POAM_CSV_COLUMNS = [
+  { header: "Title", field: "title" },
+  { header: "Description", field: "description" },
+  { header: "Status", field: "status" },
+  { header: "Control", field: "control" },
+  { header: "Inherent Risk", field: "severity" },
+  { header: "Residual Risk", field: "residualRisk" },
+  { header: "POC", field: "poc" },
+  { header: "Next Milestone Date", field: "nextMilestoneDate" },
+] as const satisfies readonly { header: string; field: string }[];
+
+/** One CSV row's cells, keyed by POAM_CSV_COLUMNS' internal field ids — every
+ * field is an optional string since usability (not shape) is what the
+ * importer validates row-by-row. */
+export interface RawPoamCsvRow {
+  title?: string;
+  description?: string;
+  status?: string;
+  control?: string;
+  severity?: string;
+  residualRisk?: string;
+  poc?: string;
+  nextMilestoneDate?: string;
+}
+
+export interface BulkImportRowNote {
+  field: string;
+  message: string;
+}
+
+export interface BulkImportPoamRowResult {
+  /** 1-based row number, excluding the CSV header row. */
+  row: number;
+  outcome: "created" | "skipped";
+  title?: string;
+  nodeId?: string;
+  /** Present only on a real (non-dryRun) "created" row. */
+  node?: GraphNode;
+  notes: BulkImportRowNote[];
+}
+
+export interface BulkImportPoamsResult {
+  dryRun: boolean;
+  createdCount: number;
+  skippedCount: number;
+  rows: BulkImportPoamRowResult[];
+}
+
 export type ThemeMode = "dark" | "light";
 
 export type PlacementMode = "auto" | "manual";
@@ -157,4 +246,24 @@ export interface AppSettings {
   tileFields: Record<string, TileFieldId[]>;
   theme?: ThemeMode;
   placementMode?: PlacementMode;
+}
+
+/**
+ * Everything needed to exactly reconstitute one board: not just nodes/edges
+ * but the node types/statuses and tileFields/placementMode settings that
+ * board depends on to render and behave the same way after a restore.
+ * `version` is a literal so an old-format file fails fast with a clear
+ * error instead of being silently misread — bumped to 2 when boards were
+ * introduced (a v1 backup predates boards and has no boardId/boardName).
+ */
+export interface FullBackup {
+  version: 2;
+  exportedAt: string;
+  boardId: string;
+  boardName: string;
+  nodeTypes: NodeTypeConfig[];
+  statuses: NodeStatusConfig[];
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  appSettings: AppSettings;
 }

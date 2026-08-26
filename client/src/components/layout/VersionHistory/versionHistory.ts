@@ -21,6 +21,11 @@ export const VERSION_HISTORY: VersionEntry[] = [
       "Project tiles show rollup counts of upstream tasks & POA&Ms",
       "Insert a new tile directly into an existing dependency chain",
       "Portable, no-install build for running independance anywhere",
+      "Right-click for a radial command wheel — create, filter, or switch modes",
+      "Work across multiple independent boards",
+      "Back up and restore a board from a JSON file",
+      "Import POA&Ms in bulk from a CSV file",
+      "Left rail peeks out on hover and expands with one click",
     ],
   },
   {

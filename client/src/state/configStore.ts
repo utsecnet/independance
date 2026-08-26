@@ -73,7 +73,12 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   createNodeType: async (payload) => {
     try {
       const type = await nodeTypesApi.create(payload);
-      set({ nodeTypes: [...get().nodeTypes, type] });
+      // The server auto-seeds a default "Not Started" status for every new
+      // type (see nodeTypeService.createNodeType) — fetch it so the type's
+      // status count is right immediately instead of showing "(0)" until
+      // the next full loadConfig().
+      const seededStatuses = await statusesApi.list(type.id);
+      set({ nodeTypes: [...get().nodeTypes, type], statuses: [...get().statuses, ...seededStatuses] });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : "Failed to create type" });
     }

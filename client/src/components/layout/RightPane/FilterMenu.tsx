@@ -1,13 +1,14 @@
-import { useState } from "react";
-import { TILE_FIELD_DEFS, type TileFieldId } from "@independance/shared";
+import { useLayoutEffect, useRef, useState } from "react";
+import { SEVERITY_LEVELS, TILE_FIELD_DEFS, type TileFieldId } from "@independance/shared";
 import { useConfigStore } from "../../../state/configStore";
 import { useGraphStore } from "../../../state/store";
 import { useFilterStore } from "../../../state/filterStore";
+import { useFilterMenuOpenStore } from "../../../state/filterMenuUIStore";
 import { EMPTY_FIELD_VALUE, fieldValueTokens } from "../../../state/tileFieldValues";
-import { SEVERITY_LEVELS } from "../../../constants/severity";
 import styles from "./FilterMenu.module.css";
 
-function FilterIcon() {
+// Exported so the command wheel's Filter slice can reuse the same icon.
+export function FilterIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
@@ -25,6 +26,31 @@ interface FieldOption {
 // always offered, whether or not a current tile actually uses it, same as
 // Type never disappearing just because a type currently has zero tiles.
 const SEVERITY_FIELD_IDS = new Set(["severity", "residualRisk"]);
+
+/**
+ * Nudges an anchored popover's top-left corner inward so it fits within the
+ * viewport, given its own actual measured size — the panel's height varies
+ * with how many type sections are expanded, so (unlike the command wheel's
+ * fixed-radius ring) this can't be clamped against a static margin and has
+ * to use the real rendered size instead. Falls back to centering when the
+ * viewport itself is smaller than the panel, same reasoning as
+ * clampToViewport in wheelGeometry.ts.
+ */
+export function clampPanelPosition(
+  anchor: { x: number; y: number },
+  panelSize: { width: number; height: number },
+  viewport: { width: number; height: number },
+  margin = 8
+): { x: number; y: number } {
+  const clampAxis = (value: number, panelExtent: number, viewportExtent: number) => {
+    if (viewportExtent <= panelExtent + margin * 2) return (viewportExtent - panelExtent) / 2;
+    return Math.min(Math.max(value, margin), viewportExtent - panelExtent - margin);
+  };
+  return {
+    x: clampAxis(anchor.x, panelSize.width, viewport.width),
+    y: clampAxis(anchor.y, panelSize.height, viewport.height),
+  };
+}
 
 function formatValueLabel(fieldId: string, value: string): string {
   if (fieldId === "estimateHours") return `${value} hrs`;
@@ -84,8 +110,36 @@ function optionsForField(
 // "filter by any field" reads as "open the type you care about, then the
 // field you care about" rather than one long undifferentiated list.
 export function FilterMenu() {
-  const [open, setOpen] = useState(false);
+  const open = useFilterMenuOpenStore((s) => s.open);
+  const anchor = useFilterMenuOpenStore((s) => s.anchor);
+  const setOpen = useFilterMenuOpenStore((s) => s.setOpen);
   const [expandedTypeIds, setExpandedTypeIds] = useState<Set<string>>(new Set());
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Anchor as given can't account for the panel's own size (only known once
+  // rendered) — this holds the version nudged back on-screen, computed
+  // after each render via the panel's real measured box. Runs in
+  // useLayoutEffect (not useEffect) so the correction lands before the
+  // browser paints, rather than as a visible jump a frame later.
+  const [clampedAnchor, setClampedAnchor] = useState<{ x: number; y: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open || !anchor || !panelRef.current) {
+      setClampedAnchor(null);
+      return;
+    }
+    const rect = panelRef.current.getBoundingClientRect();
+    setClampedAnchor(
+      clampPanelPosition(
+        anchor,
+        { width: rect.width, height: rect.height },
+        { width: window.innerWidth, height: window.innerHeight }
+      )
+    );
+    // expandedTypeIds too: expanding a type section grows the panel's real
+    // height after the initial anchor/open-driven measurement, which can
+    // push it past the viewport bottom the same way an unmeasured anchor
+    // would — re-measuring on every expand/collapse keeps it on-screen as
+    // the content grows, not just at the moment it first opens.
+  }, [open, anchor, expandedTypeIds]);
   const nodeTypes = useConfigStore((s) => s.nodeTypes);
   const statuses = useConfigStore((s) => s.statuses);
   const nodes = useGraphStore((s) => s.nodes);
@@ -111,7 +165,7 @@ export function FilterMenu() {
       <button
         type="button"
         className={`${styles.button} ${activeCount > 0 ? styles.active : ""}`}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(!open)}
         aria-expanded={open}
         aria-label="Filter map"
         title="Filter map"
@@ -122,7 +176,11 @@ export function FilterMenu() {
       {open && (
         <>
           <div className={styles.overlay} onClick={() => setOpen(false)} />
-          <div className={styles.panel}>
+          <div
+            ref={panelRef}
+            className={`${styles.panel} ${anchor ? styles.panelAnchored : ""}`}
+            style={anchor ? { left: (clampedAnchor ?? anchor).x, top: (clampedAnchor ?? anchor).y } : undefined}
+          >
             <div className={styles.panelHeader}>
               <span>Filter</span>
               {activeCount > 0 && (

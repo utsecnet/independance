@@ -1,17 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ALWAYS_ON_TILE_FIELDS,
   DEFAULT_TILE_FIELDS,
   MAX_EXTRA_TILE_FIELDS,
   RETRO_COLOR_PALETTE,
   TILE_FIELD_DEFS,
+  type FullBackup,
   type TileFieldId,
 } from "@independance/shared";
+import { backupApi, type RestoreResult } from "../../../api/backup";
 import { useConfigStore } from "../../../state/configStore";
+import { useGraphStore } from "../../../state/store";
 import { ColorPicker } from "./ColorPicker";
 import styles from "./SettingsBlade.module.css";
 
-const TABS = ["Types & Statuses", "Appearance"];
+const TABS = ["Types & Statuses", "Appearance", "Backup"];
 
 // Title is unconditionally rendered on every tile (see ALWAYS_ON_TILE_FIELDS)
 // rather than being part of the toggleable TILE_FIELD_DEFS list — listed
@@ -322,6 +325,156 @@ function AppearanceSettings() {
   );
 }
 
+function formatDateForFilename(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+function triggerJsonDownload(data: unknown, filename: string) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function isLikelyBackup(value: unknown): value is FullBackup {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "version" in value &&
+    "nodeTypes" in value &&
+    "statuses" in value &&
+    "nodes" in value &&
+    "edges" in value
+  );
+}
+
+function BackupSettings() {
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const [pendingBackup, setPendingBackup] = useState<FullBackup | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleExport() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const backup = await backupApi.export();
+      triggerJsonDownload(backup, `independance-backup-${formatDateForFilename(backup.exportedAt)}.json`);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Failed to export backup");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileError(null);
+    setRestoreError(null);
+    setRestoreResult(null);
+    try {
+      const text = await file.text();
+      const parsed: unknown = JSON.parse(text);
+      if (!isLikelyBackup(parsed)) {
+        throw new Error("This doesn't look like an independance backup file.");
+      }
+      setPendingBackup(parsed);
+    } catch (err) {
+      setPendingBackup(null);
+      setFileError(err instanceof Error ? err.message : "Failed to read this file.");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleRestore() {
+    if (!pendingBackup) return;
+    setRestoring(true);
+    setRestoreError(null);
+    try {
+      const result = await backupApi.restore(pendingBackup);
+      // A restore can replace node types/statuses/appearance settings, not
+      // just the graph — refresh both stores so every piece of client state
+      // a restore can touch matches what's actually in the database now.
+      await Promise.all([useConfigStore.getState().loadConfig(), useGraphStore.getState().loadGraph()]);
+      setRestoreResult(result);
+      setPendingBackup(null);
+    } catch (err) {
+      setRestoreError(err instanceof Error ? err.message : "Failed to restore backup");
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  return (
+    <div className={styles.section}>
+      <h2 className={styles.sectionTitle}>Backup</h2>
+      <p className={styles.hint}>
+        Export everything in this graph — tiles, links, custom types/statuses, and appearance settings — to a single
+        JSON file, or restore from one.
+      </p>
+
+      <h3 className={styles.subheading}>Export</h3>
+      <button type="button" className={styles.linkButton} onClick={handleExport} disabled={exporting}>
+        {exporting ? "Exporting…" : "Download backup"}
+      </button>
+      {exportError && <div className={styles.error}>{exportError}</div>}
+
+      <h3 className={styles.subheading}>Restore</h3>
+      <p className={styles.hint}>Restoring replaces everything currently in this graph with the backup's contents.</p>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        onChange={handleFileChange}
+        className={styles.hiddenFileInput}
+        id="backup-restore-file"
+      />
+      <label htmlFor="backup-restore-file" className={styles.fileButton}>
+        Choose backup file
+      </label>
+      {fileError && <div className={styles.error}>{fileError}</div>}
+
+      {pendingBackup && (
+        <div className={styles.summaryBox}>
+          <p>
+            Backup from {new Date(pendingBackup.exportedAt).toLocaleString()}: {pendingBackup.nodeTypes.length} types,{" "}
+            {pendingBackup.statuses.length} statuses, {pendingBackup.nodes.length} tiles, {pendingBackup.edges.length}{" "}
+            links.
+          </p>
+          <p className={styles.warningText}>
+            This permanently replaces everything currently in this graph. This can&apos;t be undone.
+          </p>
+          <div className={styles.typeRow}>
+            <button type="button" className={styles.dangerButton} onClick={handleRestore} disabled={restoring}>
+              {restoring ? "Restoring…" : "Restore this backup"}
+            </button>
+            <button type="button" className={styles.linkButton} onClick={() => setPendingBackup(null)} disabled={restoring}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {restoreError && <div className={styles.error}>{restoreError}</div>}
+      {restoreResult && (
+        <div className={styles.successBanner}>
+          Restored {restoreResult.nodeTypeCount} types, {restoreResult.statusCount} statuses,{" "}
+          {restoreResult.nodeCount} tiles, {restoreResult.edgeCount} links.
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface SettingsBladeProps {
   open: boolean;
   onClose: () => void;
@@ -361,6 +514,7 @@ export function SettingsBlade({ open, onClose }: SettingsBladeProps) {
       <div className={styles.content}>
         {activeTab === "Types & Statuses" && <TypesStatusesSettings />}
         {activeTab === "Appearance" && <AppearanceSettings />}
+        {activeTab === "Backup" && <BackupSettings />}
       </div>
     </div>
   );

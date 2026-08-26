@@ -277,3 +277,56 @@
   opacity: 0.5;
   cursor: default;
 }
+
+.hiddenFileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.fileButton {
+  display: inline-block;
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fileButton:hover {
+  filter: brightness(1.1);
+}
+
+.summaryBox {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.summaryBox p {
+  margin: 0 0 10px;
+}
+
+.warningText {
+  color: var(--accent-magenta);
+}
+
+.successBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--accent-cyan-dim);
+  color: var(--accent-cyan);
+  border: 1px solid var(--accent-cyan-dim);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-top: 16px;
+}

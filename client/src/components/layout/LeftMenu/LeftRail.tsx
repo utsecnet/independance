@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useConfigStore } from "../../../state/configStore";
 import { useGraphStore } from "../../../state/store";
 import { CURRENT_VERSION } from "../VersionHistory/versionHistory";
+import { BoardSwitcher } from "./BoardSwitcher";
 import styles from "./LeftRail.module.css";
 
 function ChevronIcon({ open }: { open: boolean }) {
@@ -68,52 +69,82 @@ export function LeftRail({ open, onToggle, activeGroup, onSelectGroup, onOpenVer
   const sortedTypes = useMemo(() => [...nodeTypes].sort((a, b) => a.sortOrder - b.sortOrder), [nodeTypes]);
 
   return (
-    <div className={`${styles.rail} ${open ? styles.railOpen : ""}`}>
-      <button
-        type="button"
-        className={styles.toggle}
-        onClick={onToggle}
-        aria-label={open ? "Collapse menu" : "Expand menu"}
-        aria-expanded={open}
-      >
-        <ChevronIcon open={open} />
-      </button>
+    <div
+      className={`${styles.rail} ${open ? styles.railOpen : ""}`}
+      // Collapsed, the whole hairline strip (not just the small toggle tab)
+      // expands the menu — the same full-height area that already triggers
+      // the hover bump, so hover and click affordances match. Only wired
+      // while collapsed: once open, this div's own area is mostly other
+      // people's controls (board switcher, item rows, Settings), and
+      // making all of that also collapse the rail on any click would fight
+      // with actually using them. onClick lives here rather than on
+      // .railInner so it covers the same stable, unmoving hit area as the
+      // hover trigger (see the comment on .railInner below).
+      onClick={!open ? onToggle : undefined}
+    >
+      {/* railInner (not .rail itself) is what visually bumps on hover — see
+          LeftRail.module.css. .rail's own box has to stay put so its hover
+          hit-area never moves out from under a stationary cursor: if the
+          hoverable element were the one being translated, a cursor sitting
+          near the original edge would fall outside the bumped box, un-hover,
+          snap back, re-hover, and bump again — a jitter loop right at that
+          boundary pixel. Keeping the hit-box static and only transforming
+          this inner wrapper avoids that feedback loop entirely. */}
+      <div className={styles.railInner}>
+        <button
+          type="button"
+          className={styles.toggle}
+          // Stops the click from also bubbling to .rail's own onClick above
+          // (which — while collapsed — would otherwise fire a second,
+          // canceling-out toggle right after this one).
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          aria-label={open ? "Collapse menu" : "Expand menu"}
+          aria-expanded={open}
+        >
+          <ChevronIcon open={open} />
+        </button>
 
-      {open && (
-        <div className={styles.groups}>
-          {sortedTypes.map((type) => (
+        {open && <BoardSwitcher />}
+
+        {open && (
+          <div className={styles.groups}>
+            {sortedTypes.map((type) => (
+              <button
+                key={type.id}
+                type="button"
+                className={`${styles.groupRow} ${activeGroup === type.id ? styles.groupRowActive : ""}`}
+                onClick={() => onSelectGroup(type.id)}
+              >
+                <span className={styles.dot} style={{ background: type.color }} />
+                <span className={styles.groupLabel}>{type.label}</span>
+                <span className={styles.count}>{countsByType.get(type.id) ?? 0}</span>
+              </button>
+            ))}
+
+            <div className={styles.divider} />
+
             <button
-              key={type.id}
               type="button"
-              className={`${styles.groupRow} ${activeGroup === type.id ? styles.groupRowActive : ""}`}
-              onClick={() => onSelectGroup(type.id)}
+              className={`${styles.groupRow} ${activeGroup === "settings" ? styles.groupRowActive : ""}`}
+              onClick={() => onSelectGroup("settings")}
             >
-              <span className={styles.dot} style={{ background: type.color }} />
-              <span className={styles.groupLabel}>{type.label}</span>
-              <span className={styles.count}>{countsByType.get(type.id) ?? 0}</span>
+              <GearIcon />
+              <span className={styles.groupLabel}>Settings</span>
             </button>
-          ))}
+          </div>
+        )}
 
-          <div className={styles.divider} />
-
-          <button
-            type="button"
-            className={`${styles.groupRow} ${activeGroup === "settings" ? styles.groupRowActive : ""}`}
-            onClick={() => onSelectGroup("settings")}
-          >
-            <GearIcon />
-            <span className={styles.groupLabel}>Settings</span>
-          </button>
-        </div>
-      )}
-
-      {open && (
-        <div className={styles.footer}>
-          <button type="button" className={styles.versionLink} onClick={onOpenVersionHistory}>
-            {CURRENT_VERSION}
-          </button>
-        </div>
-      )}
+        {open && (
+          <div className={styles.footer}>
+            <button type="button" className={styles.versionLink} onClick={onOpenVersionHistory}>
+              {CURRENT_VERSION}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

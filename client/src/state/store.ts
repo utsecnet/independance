@@ -258,6 +258,16 @@ interface GraphState {
   }) => Promise<GraphRFNode>;
   updateNode: (id: string, patch: UpdateNodePayload) => Promise<void>;
   deleteNode: (id: string) => Promise<void>;
+  /**
+   * Adds a batch of already-server-created nodes (e.g. from a CSV import
+   * commit) into local state in one shot: a single `set()` instead of one
+   * per node, one grouped undo entry so Ctrl+Z reverts the whole batch
+   * together, and exactly one arrangeGraph() call at the end. Deliberately
+   * not implemented as a loop over `createNode`, which would call
+   * arrangeGraph (and its position-persisting PATCHes) once per row —
+   * wasteful for a batch of dozens/hundreds of imported tiles.
+   */
+  importPoamNodes: (createdNodes: GraphNode[]) => Promise<void>;
   createEdge: (sourceId: string, targetId: string, relationshipType?: RelationshipType) => Promise<void>;
   /**
    * Splices a brand new tile into an existing edge: the edge's source now
@@ -582,6 +592,14 @@ export const useGraphStore = create<GraphState>((set, get) => {
     pushHistory([{ kind: "createNode", node: snapshotNode(rfNode) }]);
     await get().arrangeGraph();
     return get().nodes.find((n) => n.id === rfNode.id) ?? rfNode;
+  },
+
+  importPoamNodes: async (createdNodes) => {
+    if (createdNodes.length === 0) return;
+    const rfNodes = createdNodes.map(toRFNode);
+    set({ nodes: [...get().nodes, ...rfNodes] });
+    pushHistory(rfNodes.map((n) => ({ kind: "createNode", node: snapshotNode(n) })));
+    await get().arrangeGraph();
   },
 
   updateNode: async (id, patch) => {

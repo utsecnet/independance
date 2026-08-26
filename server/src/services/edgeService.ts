@@ -6,8 +6,8 @@ import type { createEdgeSchema, updateEdgeSchema } from "@independance/shared";
 import type { RelationshipType } from "@independance/shared";
 import type { z } from "zod";
 
-export function listEdges(db: DatabaseSync) {
-  return edgeQueries.listEdges(db);
+export function listEdges(db: DatabaseSync, boardId: string) {
+  return edgeQueries.listEdges(db, boardId);
 }
 
 /**
@@ -53,13 +53,14 @@ const SYMMETRIC_RELATIONSHIP_TYPES: RelationshipType[] = ["relates_to"];
  */
 function wouldCreateCycle(
   db: DatabaseSync,
+  boardId: string,
   blockerId: string,
   blockedId: string,
   excludeEdgeId?: string
 ): boolean {
   if (blockerId === blockedId) return true;
   const adjacency = new Map<string, string[]>();
-  for (const edge of edgeQueries.listEdges(db)) {
+  for (const edge of edgeQueries.listEdges(db, boardId)) {
     if (edge.id === excludeEdgeId) continue;
     const pair = blockingPair(edge);
     if (!pair) continue;
@@ -79,9 +80,9 @@ function wouldCreateCycle(
   return false;
 }
 
-export function createEdge(db: DatabaseSync, input: z.infer<typeof createEdgeSchema>) {
-  getNodeOrThrow(db, input.sourceId);
-  getNodeOrThrow(db, input.targetId);
+export function createEdge(db: DatabaseSync, boardId: string, input: z.infer<typeof createEdgeSchema>) {
+  getNodeOrThrow(db, boardId, input.sourceId);
+  getNodeOrThrow(db, boardId, input.targetId);
 
   // blockingPair (and so wouldCreateCycle, below) only ever runs for
   // blocks/depends_on — relates_to and remediates skip it entirely, which
@@ -95,29 +96,29 @@ export function createEdge(db: DatabaseSync, input: z.infer<typeof createEdgeSch
 
   const newPair = blockingPair(input);
   if (newPair) {
-    for (const edge of edgeQueries.getEdgesBetween(db, input.sourceId, input.targetId)) {
+    for (const edge of edgeQueries.getEdgesBetween(db, boardId, input.sourceId, input.targetId)) {
       const existingPair = blockingPair(edge);
       if (existingPair && existingPair.blockerId === newPair.blockedId && existingPair.blockedId === newPair.blockerId) {
-        edgeQueries.deleteEdge(db, edge.id);
+        edgeQueries.deleteEdge(db, boardId, edge.id);
       }
     }
-    if (wouldCreateCycle(db, newPair.blockerId, newPair.blockedId)) {
+    if (wouldCreateCycle(db, boardId, newPair.blockerId, newPair.blockedId)) {
       throw new HttpError(409, "circular_dependency", "This would create a circular dependency chain.");
     }
   } else if (SYMMETRIC_RELATIONSHIP_TYPES.includes(input.relationshipType)) {
-    for (const edge of edgeQueries.getEdgesBetween(db, input.sourceId, input.targetId)) {
+    for (const edge of edgeQueries.getEdgesBetween(db, boardId, input.sourceId, input.targetId)) {
       if (
         edge.relationshipType === input.relationshipType &&
         edge.sourceId === input.targetId &&
         edge.targetId === input.sourceId
       ) {
-        edgeQueries.deleteEdge(db, edge.id);
+        edgeQueries.deleteEdge(db, boardId, edge.id);
       }
     }
   }
 
   try {
-    return edgeQueries.insertEdge(db, input);
+    return edgeQueries.insertEdge(db, boardId, input);
   } catch (err) {
     if (err && typeof err === "object" && "errcode" in err && err.errcode === SQLITE_CONSTRAINT_UNIQUE) {
       throw new HttpError(409, "duplicate_edge", "These two items are already linked this way.");
@@ -126,24 +127,24 @@ export function createEdge(db: DatabaseSync, input: z.infer<typeof createEdgeSch
   }
 }
 
-export function updateEdge(db: DatabaseSync, id: string, input: z.infer<typeof updateEdgeSchema>) {
-  const existing = edgeQueries.getEdge(db, id);
+export function updateEdge(db: DatabaseSync, boardId: string, id: string, input: z.infer<typeof updateEdgeSchema>) {
+  const existing = edgeQueries.getEdge(db, boardId, id);
   if (!existing) throw new HttpError(404, "not_found", `Edge ${id} not found`);
 
   if (input.relationshipType) {
     const newPair = blockingPair({ ...existing, relationshipType: input.relationshipType });
-    if (newPair && wouldCreateCycle(db, newPair.blockerId, newPair.blockedId, id)) {
+    if (newPair && wouldCreateCycle(db, boardId, newPair.blockerId, newPair.blockedId, id)) {
       throw new HttpError(409, "circular_dependency", "This would create a circular dependency chain.");
     }
   }
 
-  const edge = edgeQueries.updateEdge(db, id, input);
+  const edge = edgeQueries.updateEdge(db, boardId, id, input);
   if (!edge) throw new HttpError(404, "not_found", `Edge ${id} not found`);
   return edge;
 }
 
-export function deleteEdge(db: DatabaseSync, id: string) {
-  const deleted = edgeQueries.deleteEdge(db, id);
+export function deleteEdge(db: DatabaseSync, boardId: string, id: string) {
+  const deleted = edgeQueries.deleteEdge(db, boardId, id);
   if (!deleted) throw new HttpError(404, "not_found", `Edge ${id} not found`);
 }
 

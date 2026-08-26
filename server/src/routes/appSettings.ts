@@ -7,12 +7,12 @@ import * as appSettingsService from "../services/appSettingsService.js";
 export function appSettingsRouter(db: DatabaseSync): Router {
   const router = Router();
 
-  router.get("/", (_req, res) => {
-    res.json(appSettingsService.getSettings(db));
+  router.get("/", (req, res) => {
+    res.json(appSettingsService.getSettings(db, req.boardId));
   });
 
   router.patch("/", validateBody(updateAppSettingsSchema), (req, res) => {
-    res.json(appSettingsService.updateSettings(db, req.body));
+    res.json(appSettingsService.updateSettings(db, req.boardId, req.body));
   });
 
   return router;

@@ -3,19 +3,48 @@
   flex-shrink: 0;
   height: 100%;
   /* Collapsed, this is just a hairline edge — the toggle tab (see .toggle)
-     is what's actually visible/clickable, protruding off it via absolute
-     positioning rather than adding to this width. */
+     is what's visually prominent, protruding off it via absolute
+     positioning rather than adding to this width, but the whole strip is
+     the click/hover target (see the onClick on this element in
+     LeftRail.tsx). This box's own position never moves (see .railInner
+     below for why) — it's the stable hover hit-area, flush against the
+     screen's left edge with zero gap. */
   width: 6px;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   transition: width 200ms ease;
   z-index: 2;
 }
 
+.rail:not(.railOpen) {
+  cursor: pointer;
+}
+
 .railOpen {
   width: 240px;
+}
+
+/* Everything visible lives in here, not directly in .rail — .rail is the
+   hover *trigger* (a stable box that never itself moves), .railInner is
+   what visually bumps. If the same element were both the hover trigger and
+   the thing that transforms, a cursor sitting near the original edge would
+   fall outside the bumped box the instant it moved, un-hover, snap back,
+   then re-hover and bump again — a jitter loop right at that boundary
+   pixel. Keeping them separate means .rail's hit-area is always the full,
+   unmoving 6px column flush with the screen edge, so hovering anywhere in
+   it (all the way to x=0) triggers the bump exactly once, cleanly. */
+.railInner {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  transition: transform 150ms ease;
+}
+
+.rail:not(.railOpen):hover .railInner {
+  transform: translateX(8px);
 }
 
 /* The "semi-circle with an arrow" the collapsed rail shows: a tab bulging

@@ -1,4 +1,4 @@
-﻿import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import type { GraphNode, NodeStatus, NodeType } from "@independance/shared";
 
 interface NodeRow {
@@ -28,13 +28,20 @@ function rowToNode(row: NodeRow): GraphNode {
   };
 }
 
-export function listNodes(db: DatabaseSync): GraphNode[] {
-  const rows = db.prepare("SELECT * FROM nodes ORDER BY created_at, id").all() as unknown as NodeRow[];
+export function listNodes(db: DatabaseSync, boardId: string): GraphNode[] {
+  const rows = db
+    .prepare("SELECT * FROM nodes WHERE board_id = ? ORDER BY created_at, id")
+    .all(boardId) as unknown as NodeRow[];
   return rows.map(rowToNode);
 }
 
-export function getNode(db: DatabaseSync, id: string): GraphNode | undefined {
-  const row = db.prepare("SELECT * FROM nodes WHERE id = ?").get(id) as unknown as NodeRow | undefined;
+// Scoped by board_id even though `id` alone (a client-generated UUID) is
+// already unambiguous — this is what stops one board from fetching/editing
+// another board's node by guessing or leaking its id.
+export function getNode(db: DatabaseSync, boardId: string, id: string): GraphNode | undefined {
+  const row = db
+    .prepare("SELECT * FROM nodes WHERE board_id = ? AND id = ?")
+    .get(boardId, id) as unknown as NodeRow | undefined;
   return row ? rowToNode(row) : undefined;
 }
 
@@ -46,13 +53,17 @@ export interface CreateNodeInput {
   status: NodeStatus;
   metadata: unknown;
   position: { x: number; y: number };
+  /** Restore-only: pins the exact original timestamps instead of the DB's
+   * default `now()`, so listNodes' `ORDER BY created_at, id` reproduces the
+   * backed-up order. Omitted by every normal create path. */
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-export function insertNode(db: DatabaseSync, input: CreateNodeInput): GraphNode {
-  db.prepare(
-    `INSERT INTO nodes (id, type, title, description, status, metadata, pos_x, pos_y)
-     VALUES (@id, @type, @title, @description, @status, @metadata, @pos_x, @pos_y)`
-  ).run({
+export function insertNode(db: DatabaseSync, boardId: string, input: CreateNodeInput): GraphNode {
+  const columns = ["board_id", "id", "type", "title", "description", "status", "metadata", "pos_x", "pos_y"];
+  const params: Record<string, SQLInputValue> = {
+    board_id: boardId,
     id: input.id,
     type: input.type,
     title: input.title,
@@ -61,8 +72,19 @@ export function insertNode(db: DatabaseSync, input: CreateNodeInput): GraphNode 
     metadata: JSON.stringify(input.metadata ?? {}),
     pos_x: input.position.x,
     pos_y: input.position.y,
-  });
-  return getNode(db, input.id)!;
+  };
+  if (input.createdAt !== undefined) {
+    columns.push("created_at");
+    params.created_at = input.createdAt;
+  }
+  if (input.updatedAt !== undefined) {
+    columns.push("updated_at");
+    params.updated_at = input.updatedAt;
+  }
+  db.prepare(
+    `INSERT INTO nodes (${columns.join(", ")}) VALUES (${columns.map((c) => "@" + c).join(", ")})`
+  ).run(params);
+  return getNode(db, boardId, input.id)!;
 }
 
 export interface UpdateNodeInput {
@@ -72,8 +94,13 @@ export interface UpdateNodeInput {
   metadata?: unknown;
 }
 
-export function updateNode(db: DatabaseSync, id: string, input: UpdateNodeInput): GraphNode | undefined {
-  const existing = getNode(db, id);
+export function updateNode(
+  db: DatabaseSync,
+  boardId: string,
+  id: string,
+  input: UpdateNodeInput
+): GraphNode | undefined {
+  const existing = getNode(db, boardId, id);
   if (!existing) return undefined;
 
   db.prepare(
@@ -83,34 +110,35 @@ export function updateNode(db: DatabaseSync, id: string, input: UpdateNodeInput)
        status = @status,
        metadata = @metadata,
        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-     WHERE id = @id`
+     WHERE board_id = @boardId AND id = @id`
   ).run({
+    boardId,
     id,
     title: input.title ?? existing.title,
     description: (input.description ?? existing.description) ?? null,
     status: input.status ?? existing.status,
     metadata: JSON.stringify(input.metadata ?? existing.metadata),
   });
-  return getNode(db, id);
+  return getNode(db, boardId, id);
 }
 
 export function updateNodePosition(
   db: DatabaseSync,
+  boardId: string,
   id: string,
   position: { x: number; y: number }
 ): GraphNode | undefined {
   const result = db
     .prepare(
       `UPDATE nodes SET pos_x = @x, pos_y = @y, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-       WHERE id = @id`
+       WHERE board_id = @boardId AND id = @id`
     )
-    .run({ id, x: position.x, y: position.y });
+    .run({ boardId, id, x: position.x, y: position.y });
   if (result.changes === 0) return undefined;
-  return getNode(db, id);
+  return getNode(db, boardId, id);
 }
 
-export function deleteNode(db: DatabaseSync, id: string): boolean {
-  const result = db.prepare("DELETE FROM nodes WHERE id = ?").run(id);
+export function deleteNode(db: DatabaseSync, boardId: string, id: string): boolean {
+  const result = db.prepare("DELETE FROM nodes WHERE board_id = ? AND id = ?").run(boardId, id);
   return result.changes > 0;
 }
-

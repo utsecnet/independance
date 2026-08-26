@@ -5,6 +5,15 @@
   position: relative;
 }
 
+/* Wraps just <ReactFlow> (not the toolbar buttons/modals that are .pane's
+   other children) so the command wheel's mousedown/contextmenu handlers
+   only ever fire over the actual canvas — right-clicking a text field
+   inside an open modal, say, still gets its normal native menu. */
+.canvasArea {
+  position: absolute;
+  inset: 0;
+}
+
 .empty {
   position: absolute;
   inset: 0;

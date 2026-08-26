@@ -1,3 +1,5 @@
+import { useBoardStore } from "../state/boardStore";
+
 export class ApiError extends Error {
   status: number;
 
@@ -8,8 +10,16 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const boardId = useBoardStore.getState().currentBoardId;
   const res = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      // Omitted (rather than sent empty) before bootstrap resolves an
+      // initial board — the server's requireBoard middleware falls back to
+      // the "default" board in that case too, so this is only ever a
+      // brief-instant fallback, not a real gap.
+      ...(boardId ? { "X-Board-Id": boardId } : {}),
+    },
     ...init,
   });
 

@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { DEFAULT_TILE_FIELDS, TILE_FIELD_DEFS, TILE_FIELD_IDS, type TileFieldId } from "@independance/shared";
+import {
+  DEFAULT_TILE_FIELDS,
+  SEVERITY_LABELS,
+  TILE_FIELD_DEFS,
+  TILE_FIELD_IDS,
+  type TileFieldId,
+} from "@independance/shared";
 import { useGraphStore, type GraphRFNode, type RFNodeData } from "../../../../state/store";
 import { useConfigStore } from "../../../../state/configStore";
 import { useDragLinkStore } from "../../../../state/dragLinkStore";
 import { useHoverStore } from "../../../../state/hoverStore";
-import { SEVERITY_LABELS } from "../../../../constants/severity";
 import { NodeCardForm } from "./NodeCardForm";
 import { QuickAddButton } from "./QuickAddButton";
 import styles from "./GraphNodeCard.module.css";

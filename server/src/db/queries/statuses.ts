@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { NodeStatusConfig } from "@independance/shared";
 
 interface StatusRow {
+  board_id: string;
   id: string;
   type_id: string;
   value: string;
@@ -22,31 +23,42 @@ function rowToStatus(row: StatusRow): NodeStatusConfig {
   };
 }
 
-export function listStatuses(db: DatabaseSync, typeId?: string): NodeStatusConfig[] {
+export function listStatuses(db: DatabaseSync, boardId: string, typeId?: string): NodeStatusConfig[] {
   const rows = (
     typeId
-      ? db.prepare("SELECT * FROM node_statuses WHERE type_id = ? ORDER BY sort_order, label").all(typeId)
-      : db.prepare("SELECT * FROM node_statuses ORDER BY type_id, sort_order, label").all()
+      ? db
+          .prepare("SELECT * FROM node_statuses WHERE board_id = ? AND type_id = ? ORDER BY sort_order, label")
+          .all(boardId, typeId)
+      : db
+          .prepare("SELECT * FROM node_statuses WHERE board_id = ? ORDER BY type_id, sort_order, label")
+          .all(boardId)
   ) as unknown as StatusRow[];
   return rows.map(rowToStatus);
 }
 
-export function getStatus(db: DatabaseSync, id: string): NodeStatusConfig | undefined {
-  const row = db.prepare("SELECT * FROM node_statuses WHERE id = ?").get(id) as unknown as StatusRow | undefined;
+export function getStatus(db: DatabaseSync, boardId: string, id: string): NodeStatusConfig | undefined {
+  const row = db
+    .prepare("SELECT * FROM node_statuses WHERE board_id = ? AND id = ?")
+    .get(boardId, id) as unknown as StatusRow | undefined;
   return row ? rowToStatus(row) : undefined;
 }
 
-export function getStatusByValue(db: DatabaseSync, typeId: string, value: string): NodeStatusConfig | undefined {
+export function getStatusByValue(
+  db: DatabaseSync,
+  boardId: string,
+  typeId: string,
+  value: string
+): NodeStatusConfig | undefined {
   const row = db
-    .prepare("SELECT * FROM node_statuses WHERE type_id = ? AND value = ?")
-    .get(typeId, value) as unknown as StatusRow | undefined;
+    .prepare("SELECT * FROM node_statuses WHERE board_id = ? AND type_id = ? AND value = ?")
+    .get(boardId, typeId, value) as unknown as StatusRow | undefined;
   return row ? rowToStatus(row) : undefined;
 }
 
-export function getDefaultStatus(db: DatabaseSync, typeId: string): NodeStatusConfig | undefined {
+export function getDefaultStatus(db: DatabaseSync, boardId: string, typeId: string): NodeStatusConfig | undefined {
   const row = db
-    .prepare("SELECT * FROM node_statuses WHERE type_id = ? AND is_default = 1 LIMIT 1")
-    .get(typeId) as unknown as StatusRow | undefined;
+    .prepare("SELECT * FROM node_statuses WHERE board_id = ? AND type_id = ? AND is_default = 1 LIMIT 1")
+    .get(boardId, typeId) as unknown as StatusRow | undefined;
   return row ? rowToStatus(row) : undefined;
 }
 
@@ -58,19 +70,23 @@ export interface CreateStatusInput {
   isDefault?: boolean;
 }
 
-export function insertStatus(db: DatabaseSync, input: CreateStatusInput): NodeStatusConfig {
+export function insertStatus(db: DatabaseSync, boardId: string, input: CreateStatusInput): NodeStatusConfig {
   const maxSortOrder = db
-    .prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM node_statuses WHERE type_id = ?")
-    .get(input.typeId) as unknown as { m: number };
+    .prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM node_statuses WHERE board_id = ? AND type_id = ?")
+    .get(boardId, input.typeId) as unknown as { m: number };
 
   if (input.isDefault) {
-    db.prepare("UPDATE node_statuses SET is_default = 0 WHERE type_id = ?").run(input.typeId);
+    db.prepare("UPDATE node_statuses SET is_default = 0 WHERE board_id = ? AND type_id = ?").run(
+      boardId,
+      input.typeId
+    );
   }
 
   db.prepare(
-    `INSERT INTO node_statuses (id, type_id, value, label, sort_order, is_default)
-     VALUES (@id, @typeId, @value, @label, @sortOrder, @isDefault)`
+    `INSERT INTO node_statuses (board_id, id, type_id, value, label, sort_order, is_default)
+     VALUES (@boardId, @id, @typeId, @value, @label, @sortOrder, @isDefault)`
   ).run({
+    boardId,
     id: input.id,
     typeId: input.typeId,
     value: input.value,
@@ -78,7 +94,7 @@ export function insertStatus(db: DatabaseSync, input: CreateStatusInput): NodeSt
     sortOrder: maxSortOrder.m + 1,
     isDefault: input.isDefault ? 1 : 0,
   });
-  return getStatus(db, input.id)!;
+  return getStatus(db, boardId, input.id)!;
 }
 
 export interface UpdateStatusInput {
@@ -87,12 +103,20 @@ export interface UpdateStatusInput {
   isDefault?: boolean;
 }
 
-export function updateStatus(db: DatabaseSync, id: string, input: UpdateStatusInput): NodeStatusConfig | undefined {
-  const existing = getStatus(db, id);
+export function updateStatus(
+  db: DatabaseSync,
+  boardId: string,
+  id: string,
+  input: UpdateStatusInput
+): NodeStatusConfig | undefined {
+  const existing = getStatus(db, boardId, id);
   if (!existing) return undefined;
 
   if (input.isDefault) {
-    db.prepare("UPDATE node_statuses SET is_default = 0 WHERE type_id = ?").run(existing.typeId);
+    db.prepare("UPDATE node_statuses SET is_default = 0 WHERE board_id = ? AND type_id = ?").run(
+      boardId,
+      existing.typeId
+    );
   }
 
   db.prepare(
@@ -100,17 +124,18 @@ export function updateStatus(db: DatabaseSync, id: string, input: UpdateStatusIn
        label = @label,
        sort_order = @sortOrder,
        is_default = @isDefault
-     WHERE id = @id`
+     WHERE board_id = @boardId AND id = @id`
   ).run({
+    boardId,
     id,
     label: input.label ?? existing.label,
     sortOrder: input.sortOrder ?? existing.sortOrder,
     isDefault: (input.isDefault ?? existing.isDefault) ? 1 : 0,
   });
-  return getStatus(db, id);
+  return getStatus(db, boardId, id);
 }
 
-export function deleteStatus(db: DatabaseSync, id: string): boolean {
-  const result = db.prepare("DELETE FROM node_statuses WHERE id = ?").run(id);
+export function deleteStatus(db: DatabaseSync, boardId: string, id: string): boolean {
+  const result = db.prepare("DELETE FROM node_statuses WHERE board_id = ? AND id = ?").run(boardId, id);
   return result.changes > 0;
 }

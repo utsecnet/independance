@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -16,7 +16,9 @@ import { arrangeNodes, CROSS_STEP, DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH, DOT_
 import { computeDependencyRollups } from "../../../state/dependencyRollup";
 import { collectDependencyChain } from "../../../state/dependencyChain";
 import { collapseHiddenNodes } from "../../../state/graphCollapse";
+import { useConfigStore } from "../../../state/configStore";
 import { useFilterStore } from "../../../state/filterStore";
+import { useFilterMenuOpenStore } from "../../../state/filterMenuUIStore";
 import { fieldValueTokens } from "../../../state/tileFieldValues";
 import { useDragLinkStore, type DropHalf } from "../../../state/dragLinkStore";
 import { graphNodeTypes } from "./nodes/GraphNodeCard";
@@ -25,7 +27,11 @@ import { useGestures } from "./gestures/useGestures";
 import { CreateNodeButton } from "./CreateNodeButton";
 import { ExportButton } from "./ExportButton";
 import { FilterMenu } from "./FilterMenu";
+import { ImportPoamsButton } from "./ImportPoamsButton";
 import { PlacementModeToggle } from "./PlacementModeToggle";
+import { CommandWheel } from "./wheel/CommandWheel";
+import { buildCanvasWheelItems, buildTileWheelItems } from "./wheel/wheelItems";
+import { clampToViewport, WHEEL_EDGE_MARGIN } from "./wheel/wheelGeometry";
 import styles from "./GraphCanvas.module.css";
 
 /**
@@ -260,6 +266,10 @@ export function GraphCanvas() {
   const createNode = useGraphStore((s) => s.createNode);
   const moveNode = useGraphStore((s) => s.moveNode);
   const createEdge = useGraphStore((s) => s.createEdge);
+  const deleteNode = useGraphStore((s) => s.deleteNode);
+  const startEditing = useGraphStore((s) => s.startEditing);
+  const setPlacementMode = useGraphStore((s) => s.setPlacementMode);
+  const nodeTypes = useConfigStore((s) => s.nodeTypes);
   const hiddenTypeIds = useFilterStore((s) => s.hiddenTypeIds);
   const hiddenFieldValues = useFilterStore((s) => s.hiddenFieldValues);
   // Positions while filtered are a temporary, collapsed re-layout (see
@@ -272,6 +282,25 @@ export function GraphCanvas() {
 
   const paneRef = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance<GraphRFNode, GraphRFEdge> | null>(null);
+  // Right-click command wheel — "canvas" (empty pane, create-any-type +
+  // filter + placement toggle) and "tile" (an existing node, contextual
+  // add-connected/edit/delete) are two different slice sets, see
+  // buildCanvasWheelItems/buildTileWheelItems below.
+  const [wheelState, setWheelState] = useState<
+    | {
+        kind: "canvas";
+        screenAnchor: { x: number; y: number };
+        /** Raw viewport coordinates (event.clientX/clientY) — separate from
+         * screenAnchor (.pane-relative, for CommandWheel's own positioning)
+         * because FilterMenu's popover, opened via this wheel's Filter
+         * slice, positions itself with `position: fixed`, which needs
+         * actual viewport coordinates rather than .pane-relative ones. */
+        clientAnchor: { x: number; y: number };
+        flowPosition: { x: number; y: number };
+      }
+    | { kind: "tile"; screenAnchor: { x: number; y: number }; nodeId: string }
+    | null
+  >(null);
   // Where the tile currently being dragged would actually land if released
   // right now — the exact same snapToCenterGrid + avoidRowCollision pipeline
   // handleNodeDragStop itself commits with, just run a frame early so a
@@ -614,6 +643,53 @@ export function GraphCanvas() {
     createNode({ type, title: "" });
   }
 
+  // The command wheel opens on mouse-DOWN (not the contextmenu event, which
+  // in Chrome fires on release, too late to double as "press to open") and
+  // is scoped to this canvas-only wrapper (not the whole .pane, which also
+  // holds the toolbar buttons and their own popovers/modals) so right-
+  // clicking, say, a text field inside an open modal still gets its normal
+  // native menu untouched. React Flow assigns every rendered tile's wrapper
+  // div the class react-flow__node with a data-id attribute (the same
+  // selector RF uses internally for its own DOM lookups) — checking for the
+  // nearest one via closest() is how the two wheel variants (canvas vs.
+  // tile) are told apart here, now that this is no longer going through
+  // React Flow's own onPaneContextMenu/onNodeContextMenu props.
+  function handleCanvasMouseDown(event: ReactMouseEvent) {
+    if (event.button !== 2 || event.shiftKey) return;
+    event.preventDefault();
+    if (!paneRef.current || !rfInstance) return;
+    const rect = paneRef.current.getBoundingClientRect();
+    // Nudged inward so the wheel's own ring of slices can't render partly
+    // off-screen near a window edge — see WHEEL_EDGE_MARGIN. Only the
+    // wheel's own on-screen position is affected; flowPosition below still
+    // uses the real, unclamped click point, so a canvas create still lands
+    // exactly where the user actually clicked.
+    const clampedClient = clampToViewport(
+      { x: event.clientX, y: event.clientY },
+      WHEEL_EDGE_MARGIN,
+      window.innerWidth,
+      window.innerHeight
+    );
+    const screenAnchor = { x: clampedClient.x - rect.left, y: clampedClient.y - rect.top };
+    const nodeEl = (event.target as HTMLElement).closest<HTMLElement>(".react-flow__node");
+    if (nodeEl?.dataset.id) {
+      setWheelState({ kind: "tile", screenAnchor, nodeId: nodeEl.dataset.id });
+    } else {
+      const flowPosition = rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      setWheelState({ kind: "canvas", screenAnchor, clientAnchor: clampedClient, flowPosition });
+    }
+  }
+
+  // Shift+right-click still has to fall through to the browser's own
+  // context menu (see CommandWheel's own doc comment for why an escape
+  // hatch has to be decided at the original click rather than as a slice
+  // inside an already-open wheel) — preventDefault on mousedown alone
+  // doesn't reliably suppress the later contextmenu event across browsers,
+  // so this is the actual, final word on whether the native menu shows.
+  function handleCanvasContextMenu(event: ReactMouseEvent) {
+    if (!event.shiftKey) event.preventDefault();
+  }
+
   if (status === "loading" || status === "idle") {
     return <div className={styles.pane}>Loading graph…</div>;
   }
@@ -624,6 +700,37 @@ export function GraphCanvas() {
       <FilterMenu />
       <PlacementModeToggle />
       <ExportButton rfInstance={rfInstance} />
+      <ImportPoamsButton />
+      {wheelState?.kind === "canvas" && (
+        <CommandWheel
+          anchor={wheelState.screenAnchor}
+          items={buildCanvasWheelItems(
+            nodeTypes,
+            placementMode,
+            wheelState.flowPosition,
+            createNode,
+            setPlacementMode,
+            () => useFilterMenuOpenStore.getState().setOpen(true, wheelState.clientAnchor)
+          )}
+          onClose={() => setWheelState(null)}
+        />
+      )}
+      {wheelState?.kind === "tile" && (
+        <CommandWheel
+          anchor={wheelState.screenAnchor}
+          items={buildTileWheelItems(
+            nodeTypes,
+            wheelState.nodeId,
+            nodes,
+            placementMode,
+            createNode,
+            createEdge,
+            startEditing,
+            deleteNode
+          )}
+          onClose={() => setWheelState(null)}
+        />
+      )}
       {nodes.length === 0 && (
         <div className={styles.empty}>
           <div>
@@ -640,6 +747,7 @@ export function GraphCanvas() {
           </div>
         </div>
       )}
+      <div className={styles.canvasArea} onMouseDown={handleCanvasMouseDown} onContextMenu={handleCanvasContextMenu}>
       <ReactFlow<GraphRFNode, GraphRFEdge>
         nodes={displayNodes}
         edges={displayEdges}
@@ -715,6 +823,7 @@ export function GraphCanvas() {
           nodeStrokeWidth={2}
         />
       </ReactFlow>
+      </div>
       <div className={styles.watermark}>© 2026 utsecnet. All rights reserved.</div>
     </div>
   );

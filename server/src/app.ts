@@ -6,12 +6,15 @@ import { fileURLToPath } from "node:url";
 import type { DatabaseSync } from "node:sqlite";
 import { createDb } from "./db/connection.js";
 import { healthRouter } from "./routes/health.js";
+import { boardsRouter } from "./routes/boards.js";
 import { nodesRouter } from "./routes/nodes.js";
 import { edgesRouter } from "./routes/edges.js";
 import { graphRouter } from "./routes/graph.js";
 import { nodeTypesRouter } from "./routes/nodeTypes.js";
 import { statusesRouter } from "./routes/statuses.js";
 import { appSettingsRouter } from "./routes/appSettings.js";
+import { backupRouter } from "./routes/backup.js";
+import { requireBoard } from "./middleware/board.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -36,12 +39,19 @@ export function createApp({ dbPath }: CreateAppOptions): { app: Express; db: Dat
   app.use(express.json());
 
   app.use("/api", healthRouter);
+  // Unscoped: switching boards has to work before a board is even selected.
+  app.use("/api/boards", boardsRouter(db));
+
+  // Everything below operates on one board, resolved from the X-Board-Id
+  // header (defaulting to "default" — see requireBoard's own doc comment).
+  app.use("/api", requireBoard(db));
   app.use("/api/nodes", nodesRouter(db));
   app.use("/api/edges", edgesRouter(db));
   app.use("/api/graph", graphRouter(db));
   app.use("/api/node-types", nodeTypesRouter(db));
   app.use("/api/statuses", statusesRouter(db));
   app.use("/api/settings", appSettingsRouter(db));
+  app.use("/api/backup", backupRouter(db));
 
   // The portable build's launcher points CLIENT_DIST_DIR at its bundled
   // static client so one process serves both the API and the UI on one

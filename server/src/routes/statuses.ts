@@ -9,21 +9,21 @@ export function statusesRouter(db: DatabaseSync): Router {
 
   router.get("/", (req, res) => {
     const typeId = typeof req.query.typeId === "string" ? req.query.typeId : undefined;
-    res.json(statusService.listStatuses(db, typeId));
+    res.json(statusService.listStatuses(db, req.boardId, typeId));
   });
 
   router.post("/", validateBody(createStatusSchema), (req, res) => {
-    const status = statusService.createStatus(db, req.body);
+    const status = statusService.createStatus(db, req.boardId, req.body);
     res.status(201).json(status);
   });
 
   router.patch("/:id", validateBody(updateStatusSchema), (req, res) => {
-    const status = statusService.updateStatus(db, req.params.id, req.body);
+    const status = statusService.updateStatus(db, req.boardId, req.params.id, req.body);
     res.json(status);
   });
 
   router.delete("/:id", (req, res) => {
-    statusService.deleteStatus(db, req.params.id);
+    statusService.deleteStatus(db, req.boardId, req.params.id);
     res.status(204).send();
   });
 

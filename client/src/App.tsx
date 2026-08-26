@@ -6,8 +6,7 @@ import { LeftRail } from "./components/layout/LeftMenu/LeftRail";
 import { ItemsBlade } from "./components/layout/LeftMenu/ItemsBlade";
 import { VersionHistoryOverlay } from "./components/layout/VersionHistory/VersionHistoryOverlay";
 import { ErrorBanner } from "./components/layout/ErrorBanner/ErrorBanner";
-import { useConfigStore } from "./state/configStore";
-import { useGraphStore } from "./state/store";
+import { useBoardStore } from "./state/boardStore";
 import { useVersionHistoryStore } from "./state/versionHistoryStore";
 import styles from "./App.module.css";
 
@@ -18,19 +17,11 @@ function App() {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
 
   useEffect(() => {
-    // Config has to load (and placementMode specifically has to be applied)
-    // before the graph does: loadGraph's own initial arrangeGraph call
-    // checks placementMode to decide whether it's safe to re-lay-out the
-    // graph, and defaulting to "auto" while the real saved mode was
-    // "manual" would auto-arrange — and persist! — a graph the user had
-    // deliberately left exactly as manually placed.
-    async function bootstrap() {
-      await useConfigStore.getState().loadConfig();
-      const loadedMode = useConfigStore.getState().placementMode;
-      if (loadedMode) useGraphStore.getState().applyLoadedPlacementMode(loadedMode);
-      await useGraphStore.getState().loadGraph();
-    }
-    bootstrap();
+    // loadBoards resolves the initial board (last-selected, or the first
+    // one) and selects it, which itself loads config (and applies
+    // placementMode) before the graph — see boardStore's own
+    // reloadBoardScopedState for why that order matters.
+    useBoardStore.getState().loadBoards();
   }, []);
 
   return (

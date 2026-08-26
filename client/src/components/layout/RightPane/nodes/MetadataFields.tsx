@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import type { NodeType } from "@independance/shared";
-import { SEVERITY_LEVELS } from "../../../../constants/severity";
+import { SEVERITY_LEVELS, type NodeType } from "@independance/shared";
 import styles from "./NodeCardForm.module.css";
 
 export interface MetadataFormValues {

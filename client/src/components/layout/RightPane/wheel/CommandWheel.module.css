@@ -1,0 +1,77 @@
+.wheel {
+  position: absolute;
+  /* Zero-size anchor point — every child is positioned relative to this
+     same 0,0 and moves itself out via its own transform, so this element
+     never needs to know its own overall bounding size. */
+  width: 0;
+  height: 0;
+  z-index: 30;
+  /* No backdrop plate behind the slices (a donut, not a filled disc) — the
+     wheel is just the floating buttons themselves; each one carries its
+     own shadow (see .itemIcon) to stay visually grounded without one. */
+  pointer-events: none;
+}
+
+.hint {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  width: 96px;
+  text-align: center;
+  font-size: 9.5px;
+  line-height: 1.25;
+  color: var(--text-dim);
+}
+
+.item {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 52px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.itemIcon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--glow-color, var(--border));
+  color: #fff;
+  /* Neon accent: a crisp ring in the slice's own color (set inline as
+     --glow-color per item) with just a touch of lift, not a heavy bloom. */
+  box-shadow:
+    0 0 0 1px var(--glow-color, transparent),
+    0 0 4px 0px var(--glow-color, transparent);
+  transition: transform 100ms ease, box-shadow 100ms ease;
+}
+
+.item:hover .itemIcon {
+  transform: scale(1.15);
+  box-shadow:
+    0 0 0 1px var(--glow-color, transparent),
+    0 0 7px 1px var(--glow-color, transparent);
+}
+
+.itemLabel {
+  font-size: 10px;
+  color: var(--text-h);
+  white-space: nowrap;
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 3px var(--bg), 0 0 6px var(--bg);
+}
+
+.item:hover .itemLabel {
+  color: var(--glow-color, var(--text-h));
+}

@@ -73,6 +73,18 @@
   padding: 10px;
 }
 
+/* Opened from the command wheel: appear at the cursor instead of the
+   toolbar button's own fixed spot. `position: fixed` (rather than
+   overriding top/left while staying absolute) is what actually escapes
+   .wrapper's own `position: absolute` offset — an absolutely-positioned
+   ancestor doesn't become the containing block for a fixed descendant the
+   way it would for another absolutely-positioned one, so left/top here are
+   plain viewport coordinates (event.clientX/clientY), not relative to
+   .wrapper at all. */
+.panelAnchored {
+  position: fixed;
+}
+
 .panelHeader {
   display: flex;
   align-items: center;

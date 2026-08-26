@@ -1,4 +1,4 @@
-import type { GraphNode, NodeMetadata, NodeStatus, NodeType } from "@independance/shared";
+import type { BulkImportPoamsResult, GraphNode, NodeMetadata, NodeStatus, NodeType, RawPoamCsvRow } from "@independance/shared";
 import { api } from "./client";
 
 export interface CreateNodePayload {
@@ -25,4 +25,6 @@ export const nodesApi = {
   updatePosition: (id: string, position: { x: number; y: number }) =>
     api.patch<GraphNode>(`/nodes/${id}/position`, { position }),
   remove: (id: string) => api.delete(`/nodes/${id}`),
+  bulkImportPoams: (payload: { rows: RawPoamCsvRow[]; dryRun?: boolean }) =>
+    api.post<BulkImportPoamsResult>("/nodes/import-poams", payload),
 };
