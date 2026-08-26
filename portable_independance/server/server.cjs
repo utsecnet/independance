@@ -20811,7 +20811,7 @@ var require_application = __commonJS({
     "use strict";
     init_import_meta_url_shim();
     var finalhandler = require_finalhandler();
-    var Router8 = require_router();
+    var Router10 = require_router();
     var methods = require_methods();
     var middleware = require_init();
     var query = require_query();
@@ -20876,7 +20876,7 @@ var require_application = __commonJS({
     };
     app2.lazyrouter = function lazyrouter() {
       if (!this._router) {
-        this._router = new Router8({
+        this._router = new Router10({
           caseSensitive: this.enabled("case sensitive routing"),
           strict: this.enabled("strict routing")
         });
@@ -22753,7 +22753,7 @@ var require_express = __commonJS({
     var mixin = require_merge_descriptors();
     var proto = require_application();
     var Route = require_route();
-    var Router8 = require_router();
+    var Router10 = require_router();
     var req = require_request();
     var res = require_response();
     exports2 = module2.exports = createApplication;
@@ -22776,7 +22776,7 @@ var require_express = __commonJS({
     exports2.request = req;
     exports2.response = res;
     exports2.Route = Route;
-    exports2.Router = Router8;
+    exports2.Router = Router10;
     exports2.json = bodyParser.json;
     exports2.query = require_query();
     exports2.raw = bodyParser.raw;
@@ -23110,7 +23110,7 @@ var import_node_url4 = require("node:url");
 
 // ../../independance/server/src/app.ts
 init_import_meta_url_shim();
-var import_express8 = __toESM(require_express2(), 1);
+var import_express10 = __toESM(require_express2(), 1);
 var import_cors = __toESM(require_lib3(), 1);
 var import_node_path2 = __toESM(require("node:path"), 1);
 var import_node_fs2 = require("node:fs");
@@ -23166,7 +23166,7 @@ healthRouter.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-// ../../independance/server/src/routes/nodes.ts
+// ../../independance/server/src/routes/boards.ts
 init_import_meta_url_shim();
 var import_express2 = __toESM(require_express2(), 1);
 
@@ -23196,6 +23196,17 @@ var TILE_FIELD_DEFS = [
 ];
 var TILE_FIELD_IDS = TILE_FIELD_DEFS.map((f) => f.id);
 var MAX_EXTRA_TILE_FIELDS = 3;
+var SEVERITY_LEVELS = [
+  { value: "very_high", label: "Very High" },
+  { value: "high", label: "High" },
+  { value: "moderate", label: "Moderate" },
+  { value: "low", label: "Low" },
+  { value: "very_low", label: "Very Low" }
+];
+var SEVERITY_LABELS = Object.fromEntries(
+  SEVERITY_LEVELS.map((s) => [s.value, s.label])
+);
+var MAX_BULK_IMPORT_ROWS = 1e3;
 
 // ../../independance/shared/src/schemas.ts
 init_import_meta_url_shim();
@@ -27267,6 +27278,13 @@ var nodeTypeSchema = external_exports.string().min(1);
 var nodeStatusSchema = external_exports.string().min(1);
 var relationshipTypeSchema = external_exports.enum(["depends_on", "blocks", "relates_to", "remediates"]);
 var nodeMetadataSchema = external_exports.record(external_exports.string(), external_exports.unknown());
+var createBoardSchema = external_exports.object({
+  name: external_exports.string().min(1)
+});
+var updateBoardSchema = external_exports.object({
+  name: external_exports.string().min(1).optional(),
+  sortOrder: external_exports.number().int().optional()
+});
 var positionSchema = external_exports.object({
   x: external_exports.number(),
   y: external_exports.number()
@@ -27343,6 +27361,58 @@ var updateAppSettingsSchema = external_exports.object({
   theme: themeModeSchema.optional(),
   placementMode: placementModeSchema.optional()
 });
+var bulkImportPoamRowSchema = external_exports.object({
+  title: external_exports.string().optional(),
+  description: external_exports.string().optional(),
+  status: external_exports.string().optional(),
+  control: external_exports.string().optional(),
+  severity: external_exports.string().optional(),
+  residualRisk: external_exports.string().optional(),
+  poc: external_exports.string().optional(),
+  nextMilestoneDate: external_exports.string().optional()
+});
+var bulkImportPoamsSchema = external_exports.object({
+  rows: external_exports.array(bulkImportPoamRowSchema).min(1).max(MAX_BULK_IMPORT_ROWS),
+  dryRun: external_exports.boolean().optional()
+});
+var backupNodeTypeSchema = createNodeTypeSchema.extend({
+  sortOrder: external_exports.number().int()
+});
+var backupStatusSchema = createStatusSchema.extend({
+  id: external_exports.string().min(1),
+  sortOrder: external_exports.number().int()
+});
+var backupNodeSchema = external_exports.object({
+  id: external_exports.string().uuid(),
+  type: nodeTypeSchema,
+  title: external_exports.string(),
+  description: external_exports.string().optional(),
+  status: nodeStatusSchema,
+  metadata: nodeMetadataSchema,
+  position: positionSchema,
+  createdAt: external_exports.string(),
+  updatedAt: external_exports.string()
+});
+var backupEdgeSchema = external_exports.object({
+  id: external_exports.string().uuid(),
+  sourceId: external_exports.string().uuid(),
+  targetId: external_exports.string().uuid(),
+  relationshipType: relationshipTypeSchema,
+  label: external_exports.string().optional(),
+  createdAt: external_exports.string(),
+  updatedAt: external_exports.string()
+});
+var fullBackupSchema = external_exports.object({
+  version: external_exports.literal(2),
+  exportedAt: external_exports.string(),
+  boardId: external_exports.string(),
+  boardName: external_exports.string(),
+  nodeTypes: external_exports.array(backupNodeTypeSchema),
+  statuses: external_exports.array(backupStatusSchema),
+  nodes: external_exports.array(backupNodeSchema),
+  edges: external_exports.array(backupEdgeSchema),
+  appSettings: updateAppSettingsSchema
+});
 
 // ../../independance/server/src/middleware/validate.ts
 init_import_meta_url_shim();
@@ -27353,79 +27423,55 @@ function validateBody(schema) {
   };
 }
 
-// ../../independance/server/src/services/nodeService.ts
+// ../../independance/server/src/services/boardService.ts
 init_import_meta_url_shim();
+var import_node_crypto = require("node:crypto");
 
-// ../../independance/server/src/db/queries/nodes.ts
+// ../../independance/server/src/db/queries/boards.ts
 init_import_meta_url_shim();
-function rowToNode(row) {
-  return {
-    id: row.id,
-    type: row.type,
-    title: row.title,
-    description: row.description ?? void 0,
-    status: row.status,
-    metadata: JSON.parse(row.metadata),
-    position: { x: row.pos_x, y: row.pos_y },
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
+function rowToBoard(row) {
+  return { id: row.id, name: row.name, sortOrder: row.sort_order };
 }
-function listNodes(db) {
-  const rows = db.prepare("SELECT * FROM nodes ORDER BY created_at, id").all();
-  return rows.map(rowToNode);
+function listBoards(db) {
+  const rows = db.prepare("SELECT * FROM boards ORDER BY sort_order, name").all();
+  return rows.map(rowToBoard);
 }
-function getNode(db, id) {
-  const row = db.prepare("SELECT * FROM nodes WHERE id = ?").get(id);
-  return row ? rowToNode(row) : void 0;
+function getBoard(db, id) {
+  const row = db.prepare("SELECT * FROM boards WHERE id = ?").get(id);
+  return row ? rowToBoard(row) : void 0;
 }
-function insertNode(db, input) {
-  db.prepare(
-    `INSERT INTO nodes (id, type, title, description, status, metadata, pos_x, pos_y)
-     VALUES (@id, @type, @title, @description, @status, @metadata, @pos_x, @pos_y)`
-  ).run({
+function insertBoard(db, input) {
+  const maxSortOrder = db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM boards").get();
+  db.prepare(`INSERT INTO boards (id, name, sort_order) VALUES (@id, @name, @sortOrder)`).run({
     id: input.id,
-    type: input.type,
-    title: input.title,
-    description: input.description ?? null,
-    status: input.status,
-    metadata: JSON.stringify(input.metadata ?? {}),
-    pos_x: input.position.x,
-    pos_y: input.position.y
+    name: input.name,
+    sortOrder: maxSortOrder.m + 1
   });
-  return getNode(db, input.id);
+  return getBoard(db, input.id);
 }
-function updateNode(db, id, input) {
-  const existing = getNode(db, id);
+function updateBoard(db, id, input) {
+  const existing = getBoard(db, id);
   if (!existing) return void 0;
   db.prepare(
-    `UPDATE nodes SET
-       title = @title,
-       description = @description,
-       status = @status,
-       metadata = @metadata,
+    `UPDATE boards SET
+       name = @name,
+       sort_order = @sortOrder,
        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
      WHERE id = @id`
   ).run({
     id,
-    title: input.title ?? existing.title,
-    description: input.description ?? existing.description ?? null,
-    status: input.status ?? existing.status,
-    metadata: JSON.stringify(input.metadata ?? existing.metadata)
+    name: input.name ?? existing.name,
+    sortOrder: input.sortOrder ?? existing.sortOrder
   });
-  return getNode(db, id);
+  return getBoard(db, id);
 }
-function updateNodePosition(db, id, position) {
-  const result = db.prepare(
-    `UPDATE nodes SET pos_x = @x, pos_y = @y, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-       WHERE id = @id`
-  ).run({ id, x: position.x, y: position.y });
-  if (result.changes === 0) return void 0;
-  return getNode(db, id);
-}
-function deleteNode(db, id) {
-  const result = db.prepare("DELETE FROM nodes WHERE id = ?").run(id);
+function deleteBoard(db, id) {
+  const result = db.prepare("DELETE FROM boards WHERE id = ?").run(id);
   return result.changes > 0;
+}
+function countBoards(db) {
+  const row = db.prepare("SELECT COUNT(*) AS c FROM boards").get();
+  return row.c;
 }
 
 // ../../independance/server/src/db/queries/nodeTypes.ts
@@ -27438,23 +27484,23 @@ function rowToNodeType(row) {
     sortOrder: row.sort_order
   };
 }
-function listNodeTypes(db) {
-  const rows = db.prepare("SELECT * FROM node_types ORDER BY sort_order, label").all();
+function listNodeTypes(db, boardId) {
+  const rows = db.prepare("SELECT * FROM node_types WHERE board_id = ? ORDER BY sort_order, label").all(boardId);
   return rows.map(rowToNodeType);
 }
-function getNodeType(db, id) {
-  const row = db.prepare("SELECT * FROM node_types WHERE id = ?").get(id);
+function getNodeType(db, boardId, id) {
+  const row = db.prepare("SELECT * FROM node_types WHERE board_id = ? AND id = ?").get(boardId, id);
   return row ? rowToNodeType(row) : void 0;
 }
-function insertNodeType(db, input) {
-  const maxSortOrder = db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM node_types").get();
+function insertNodeType(db, boardId, input) {
+  const maxSortOrder = db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM node_types WHERE board_id = ?").get(boardId);
   db.prepare(
-    `INSERT INTO node_types (id, label, color, sort_order) VALUES (@id, @label, @color, @sortOrder)`
-  ).run({ id: input.id, label: input.label, color: input.color, sortOrder: maxSortOrder.m + 1 });
-  return getNodeType(db, input.id);
+    `INSERT INTO node_types (board_id, id, label, color, sort_order) VALUES (@boardId, @id, @label, @color, @sortOrder)`
+  ).run({ boardId, id: input.id, label: input.label, color: input.color, sortOrder: maxSortOrder.m + 1 });
+  return getNodeType(db, boardId, input.id);
 }
-function updateNodeType(db, id, input) {
-  const existing = getNodeType(db, id);
+function updateNodeType(db, boardId, id, input) {
+  const existing = getNodeType(db, boardId, id);
   if (!existing) return void 0;
   db.prepare(
     `UPDATE node_types SET
@@ -27462,23 +27508,20 @@ function updateNodeType(db, id, input) {
        color = @color,
        sort_order = @sortOrder,
        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-     WHERE id = @id`
+     WHERE board_id = @boardId AND id = @id`
   ).run({
+    boardId,
     id,
     label: input.label ?? existing.label,
     color: input.color ?? existing.color,
     sortOrder: input.sortOrder ?? existing.sortOrder
   });
-  return getNodeType(db, id);
+  return getNodeType(db, boardId, id);
 }
-function deleteNodeType(db, id) {
-  const result = db.prepare("DELETE FROM node_types WHERE id = ?").run(id);
+function deleteNodeType(db, boardId, id) {
+  const result = db.prepare("DELETE FROM node_types WHERE board_id = ? AND id = ?").run(boardId, id);
   return result.changes > 0;
 }
-
-// ../../independance/server/src/services/statusService.ts
-init_import_meta_url_shim();
-var import_node_crypto = require("node:crypto");
 
 // ../../independance/server/src/db/queries/statuses.ts
 init_import_meta_url_shim();
@@ -27492,31 +27535,35 @@ function rowToStatus(row) {
     isDefault: row.is_default === 1
   };
 }
-function listStatuses(db, typeId) {
-  const rows = typeId ? db.prepare("SELECT * FROM node_statuses WHERE type_id = ? ORDER BY sort_order, label").all(typeId) : db.prepare("SELECT * FROM node_statuses ORDER BY type_id, sort_order, label").all();
+function listStatuses(db, boardId, typeId) {
+  const rows = typeId ? db.prepare("SELECT * FROM node_statuses WHERE board_id = ? AND type_id = ? ORDER BY sort_order, label").all(boardId, typeId) : db.prepare("SELECT * FROM node_statuses WHERE board_id = ? ORDER BY type_id, sort_order, label").all(boardId);
   return rows.map(rowToStatus);
 }
-function getStatus(db, id) {
-  const row = db.prepare("SELECT * FROM node_statuses WHERE id = ?").get(id);
+function getStatus(db, boardId, id) {
+  const row = db.prepare("SELECT * FROM node_statuses WHERE board_id = ? AND id = ?").get(boardId, id);
   return row ? rowToStatus(row) : void 0;
 }
-function getStatusByValue(db, typeId, value) {
-  const row = db.prepare("SELECT * FROM node_statuses WHERE type_id = ? AND value = ?").get(typeId, value);
+function getStatusByValue(db, boardId, typeId, value) {
+  const row = db.prepare("SELECT * FROM node_statuses WHERE board_id = ? AND type_id = ? AND value = ?").get(boardId, typeId, value);
   return row ? rowToStatus(row) : void 0;
 }
-function getDefaultStatus(db, typeId) {
-  const row = db.prepare("SELECT * FROM node_statuses WHERE type_id = ? AND is_default = 1 LIMIT 1").get(typeId);
+function getDefaultStatus(db, boardId, typeId) {
+  const row = db.prepare("SELECT * FROM node_statuses WHERE board_id = ? AND type_id = ? AND is_default = 1 LIMIT 1").get(boardId, typeId);
   return row ? rowToStatus(row) : void 0;
 }
-function insertStatus(db, input) {
-  const maxSortOrder = db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM node_statuses WHERE type_id = ?").get(input.typeId);
+function insertStatus(db, boardId, input) {
+  const maxSortOrder = db.prepare("SELECT COALESCE(MAX(sort_order), -1) AS m FROM node_statuses WHERE board_id = ? AND type_id = ?").get(boardId, input.typeId);
   if (input.isDefault) {
-    db.prepare("UPDATE node_statuses SET is_default = 0 WHERE type_id = ?").run(input.typeId);
+    db.prepare("UPDATE node_statuses SET is_default = 0 WHERE board_id = ? AND type_id = ?").run(
+      boardId,
+      input.typeId
+    );
   }
   db.prepare(
-    `INSERT INTO node_statuses (id, type_id, value, label, sort_order, is_default)
-     VALUES (@id, @typeId, @value, @label, @sortOrder, @isDefault)`
+    `INSERT INTO node_statuses (board_id, id, type_id, value, label, sort_order, is_default)
+     VALUES (@boardId, @id, @typeId, @value, @label, @sortOrder, @isDefault)`
   ).run({
+    boardId,
     id: input.id,
     typeId: input.typeId,
     value: input.value,
@@ -27524,30 +27571,34 @@ function insertStatus(db, input) {
     sortOrder: maxSortOrder.m + 1,
     isDefault: input.isDefault ? 1 : 0
   });
-  return getStatus(db, input.id);
+  return getStatus(db, boardId, input.id);
 }
-function updateStatus(db, id, input) {
-  const existing = getStatus(db, id);
+function updateStatus(db, boardId, id, input) {
+  const existing = getStatus(db, boardId, id);
   if (!existing) return void 0;
   if (input.isDefault) {
-    db.prepare("UPDATE node_statuses SET is_default = 0 WHERE type_id = ?").run(existing.typeId);
+    db.prepare("UPDATE node_statuses SET is_default = 0 WHERE board_id = ? AND type_id = ?").run(
+      boardId,
+      existing.typeId
+    );
   }
   db.prepare(
     `UPDATE node_statuses SET
        label = @label,
        sort_order = @sortOrder,
        is_default = @isDefault
-     WHERE id = @id`
+     WHERE board_id = @boardId AND id = @id`
   ).run({
+    boardId,
     id,
     label: input.label ?? existing.label,
     sortOrder: input.sortOrder ?? existing.sortOrder,
     isDefault: input.isDefault ?? existing.isDefault ? 1 : 0
   });
-  return getStatus(db, id);
+  return getStatus(db, boardId, id);
 }
-function deleteStatus(db, id) {
-  const result = db.prepare("DELETE FROM node_statuses WHERE id = ?").run(id);
+function deleteStatus(db, boardId, id) {
+  const result = db.prepare("DELETE FROM node_statuses WHERE board_id = ? AND id = ?").run(boardId, id);
   return result.changes > 0;
 }
 
@@ -27582,25 +27633,206 @@ function errorHandler(err, _req, res, _next) {
   res.status(500).json({ error: { message: "Internal server error", code: "internal_error" } });
 }
 
-// ../../independance/server/src/services/statusService.ts
-function listStatuses2(db, typeId) {
-  return listStatuses(db, typeId);
+// ../../independance/server/src/services/boardService.ts
+function listBoards2(db) {
+  return listBoards(db);
 }
-function createStatus(db, input) {
-  if (!getNodeType(db, input.typeId)) {
+function getBoardOrThrow(db, id) {
+  const board = getBoard(db, id);
+  if (!board) throw new HttpError(404, "not_found", `Board ${id} not found`);
+  return board;
+}
+var DEFAULT_TYPES = [
+  { id: "task", label: "Task", color: "#3b82f6" },
+  { id: "project", label: "Project", color: "#9a6bde" },
+  { id: "poam", label: "POA&M", color: "#dc4444" }
+];
+var DEFAULT_STATUSES = {
+  task: [
+    { value: "not_started", label: "Not Started", isDefault: true },
+    { value: "in_progress", label: "In Progress", isDefault: false },
+    { value: "blocked", label: "Blocked", isDefault: false },
+    { value: "complete", label: "Complete", isDefault: false }
+  ],
+  project: [
+    { value: "not_started", label: "Not Started", isDefault: true },
+    { value: "in_progress", label: "In Progress", isDefault: false },
+    { value: "blocked", label: "Blocked", isDefault: false },
+    { value: "complete", label: "Complete", isDefault: false }
+  ],
+  poam: [
+    { value: "drafting", label: "Drafting", isDefault: true },
+    { value: "assessment", label: "Assessment", isDefault: false },
+    { value: "planning", label: "Planning", isDefault: false },
+    { value: "isso_review", label: "ISSO Review", isDefault: false },
+    { value: "issm_review", label: "ISSM Review", isDefault: false },
+    { value: "complete", label: "Complete", isDefault: false }
+  ]
+};
+function seedDefaultTypes(db, boardId) {
+  for (const type of DEFAULT_TYPES) {
+    insertNodeType(db, boardId, type);
+    for (const status of DEFAULT_STATUSES[type.id]) {
+      insertStatus(db, boardId, {
+        id: (0, import_node_crypto.randomUUID)(),
+        typeId: type.id,
+        value: status.value,
+        label: status.label,
+        isDefault: status.isDefault
+      });
+    }
+  }
+}
+function createBoard(db, input) {
+  const board = insertBoard(db, { id: (0, import_node_crypto.randomUUID)(), name: input.name });
+  seedDefaultTypes(db, board.id);
+  return board;
+}
+function updateBoard2(db, id, input) {
+  const board = updateBoard(db, id, input);
+  if (!board) throw new HttpError(404, "not_found", `Board ${id} not found`);
+  return board;
+}
+function deleteBoard2(db, id) {
+  getBoardOrThrow(db, id);
+  if (countBoards(db) <= 1) {
+    throw new HttpError(409, "last_board", "Can't delete the only board \u2014 every install needs at least one.");
+  }
+  deleteBoard(db, id);
+}
+
+// ../../independance/server/src/routes/boards.ts
+function boardsRouter(db) {
+  const router = (0, import_express2.Router)();
+  router.get("/", (_req, res) => {
+    res.json(listBoards2(db));
+  });
+  router.post("/", validateBody(createBoardSchema), (req, res) => {
+    const board = createBoard(db, req.body);
+    res.status(201).json(board);
+  });
+  router.patch("/:id", validateBody(updateBoardSchema), (req, res) => {
+    const board = updateBoard2(db, req.params.id, req.body);
+    res.json(board);
+  });
+  router.delete("/:id", (req, res) => {
+    deleteBoard2(db, req.params.id);
+    res.status(204).send();
+  });
+  return router;
+}
+
+// ../../independance/server/src/routes/nodes.ts
+init_import_meta_url_shim();
+var import_express3 = __toESM(require_express2(), 1);
+
+// ../../independance/server/src/services/nodeService.ts
+init_import_meta_url_shim();
+
+// ../../independance/server/src/db/queries/nodes.ts
+init_import_meta_url_shim();
+function rowToNode(row) {
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    description: row.description ?? void 0,
+    status: row.status,
+    metadata: JSON.parse(row.metadata),
+    position: { x: row.pos_x, y: row.pos_y },
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+function listNodes(db, boardId) {
+  const rows = db.prepare("SELECT * FROM nodes WHERE board_id = ? ORDER BY created_at, id").all(boardId);
+  return rows.map(rowToNode);
+}
+function getNode(db, boardId, id) {
+  const row = db.prepare("SELECT * FROM nodes WHERE board_id = ? AND id = ?").get(boardId, id);
+  return row ? rowToNode(row) : void 0;
+}
+function insertNode(db, boardId, input) {
+  const columns = ["board_id", "id", "type", "title", "description", "status", "metadata", "pos_x", "pos_y"];
+  const params = {
+    board_id: boardId,
+    id: input.id,
+    type: input.type,
+    title: input.title,
+    description: input.description ?? null,
+    status: input.status,
+    metadata: JSON.stringify(input.metadata ?? {}),
+    pos_x: input.position.x,
+    pos_y: input.position.y
+  };
+  if (input.createdAt !== void 0) {
+    columns.push("created_at");
+    params.created_at = input.createdAt;
+  }
+  if (input.updatedAt !== void 0) {
+    columns.push("updated_at");
+    params.updated_at = input.updatedAt;
+  }
+  db.prepare(
+    `INSERT INTO nodes (${columns.join(", ")}) VALUES (${columns.map((c) => "@" + c).join(", ")})`
+  ).run(params);
+  return getNode(db, boardId, input.id);
+}
+function updateNode(db, boardId, id, input) {
+  const existing = getNode(db, boardId, id);
+  if (!existing) return void 0;
+  db.prepare(
+    `UPDATE nodes SET
+       title = @title,
+       description = @description,
+       status = @status,
+       metadata = @metadata,
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+     WHERE board_id = @boardId AND id = @id`
+  ).run({
+    boardId,
+    id,
+    title: input.title ?? existing.title,
+    description: input.description ?? existing.description ?? null,
+    status: input.status ?? existing.status,
+    metadata: JSON.stringify(input.metadata ?? existing.metadata)
+  });
+  return getNode(db, boardId, id);
+}
+function updateNodePosition(db, boardId, id, position) {
+  const result = db.prepare(
+    `UPDATE nodes SET pos_x = @x, pos_y = @y, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE board_id = @boardId AND id = @id`
+  ).run({ boardId, id, x: position.x, y: position.y });
+  if (result.changes === 0) return void 0;
+  return getNode(db, boardId, id);
+}
+function deleteNode(db, boardId, id) {
+  const result = db.prepare("DELETE FROM nodes WHERE board_id = ? AND id = ?").run(boardId, id);
+  return result.changes > 0;
+}
+
+// ../../independance/server/src/services/statusService.ts
+init_import_meta_url_shim();
+var import_node_crypto2 = require("node:crypto");
+function listStatuses2(db, boardId, typeId) {
+  return listStatuses(db, boardId, typeId);
+}
+function createStatus(db, boardId, input) {
+  if (!getNodeType(db, boardId, input.typeId)) {
     throw new HttpError(404, "not_found", `Node type "${input.typeId}" not found`);
   }
-  if (getStatusByValue(db, input.typeId, input.value)) {
+  if (getStatusByValue(db, boardId, input.typeId, input.value)) {
     throw new HttpError(
       409,
       "status_exists",
       `A status with value "${input.value}" already exists for this type.`
     );
   }
-  return insertStatus(db, { id: (0, import_node_crypto.randomUUID)(), ...input });
+  return insertStatus(db, boardId, { id: (0, import_node_crypto2.randomUUID)(), ...input });
 }
-function updateStatus2(db, id, input) {
-  const existing = getStatus(db, id);
+function updateStatus2(db, boardId, id, input) {
+  const existing = getStatus(db, boardId, id);
   if (!existing) throw new HttpError(404, "not_found", `Status ${id} not found`);
   if (input.isDefault === false && existing.isDefault) {
     throw new HttpError(
@@ -27609,12 +27841,12 @@ function updateStatus2(db, id, input) {
       "Set a different status as default before unsetting this one \u2014 a type always needs one."
     );
   }
-  const status = updateStatus(db, id, input);
+  const status = updateStatus(db, boardId, id, input);
   if (!status) throw new HttpError(404, "not_found", `Status ${id} not found`);
   return status;
 }
-function deleteStatus2(db, id) {
-  const existing = getStatus(db, id);
+function deleteStatus2(db, boardId, id) {
+  const existing = getStatus(db, boardId, id);
   if (!existing) throw new HttpError(404, "not_found", `Status ${id} not found`);
   if (existing.isDefault) {
     throw new HttpError(
@@ -27623,75 +27855,178 @@ function deleteStatus2(db, id) {
       "Set a different status as default before deleting this one \u2014 a type always needs one."
     );
   }
-  deleteStatus(db, id);
+  deleteStatus(db, boardId, id);
 }
-function resolveStatusForType(db, typeId, status) {
+function resolveStatusForType(db, boardId, typeId, status) {
   if (status === void 0) {
-    const def = getDefaultStatus(db, typeId);
+    const def = getDefaultStatus(db, boardId, typeId);
     if (!def) throw new HttpError(400, "no_default_status", `Type "${typeId}" has no default status configured.`);
     return def.value;
   }
-  const match = getStatusByValue(db, typeId, status);
+  const match = getStatusByValue(db, boardId, typeId, status);
   if (!match) throw new HttpError(400, "invalid_status", `"${status}" isn't a valid status for this type.`);
   return match.value;
 }
 
 // ../../independance/server/src/services/nodeService.ts
-function listNodes2(db) {
-  return listNodes(db);
+function listNodes2(db, boardId) {
+  return listNodes(db, boardId);
 }
-function createNode(db, input) {
-  if (!getNodeType(db, input.type)) {
+function createNode(db, boardId, input) {
+  if (!getNodeType(db, boardId, input.type)) {
     throw new HttpError(404, "not_found", `Unknown node type "${input.type}"`);
   }
-  const status = resolveStatusForType(db, input.type, input.status);
-  return insertNode(db, { ...input, status });
+  const status = resolveStatusForType(db, boardId, input.type, input.status);
+  return insertNode(db, boardId, { ...input, status });
 }
-function updateNode2(db, id, input) {
-  const existing = getNodeOrThrow(db, id);
-  const status = input.status !== void 0 ? resolveStatusForType(db, existing.type, input.status) : void 0;
-  const node = updateNode(db, id, { ...input, status });
+function updateNode2(db, boardId, id, input) {
+  const existing = getNodeOrThrow(db, boardId, id);
+  const status = input.status !== void 0 ? resolveStatusForType(db, boardId, existing.type, input.status) : void 0;
+  const node = updateNode(db, boardId, id, { ...input, status });
   if (!node) throw new HttpError(404, "not_found", `Node ${id} not found`);
   return node;
 }
-function updateNodePosition2(db, id, input) {
-  const node = updateNodePosition(db, id, input.position);
+function updateNodePosition2(db, boardId, id, input) {
+  const node = updateNodePosition(db, boardId, id, input.position);
   if (!node) throw new HttpError(404, "not_found", `Node ${id} not found`);
   return node;
 }
-function deleteNode2(db, id) {
-  const deleted = deleteNode(db, id);
+function deleteNode2(db, boardId, id) {
+  const deleted = deleteNode(db, boardId, id);
   if (!deleted) throw new HttpError(404, "not_found", `Node ${id} not found`);
 }
-function getNodeOrThrow(db, id) {
-  const node = getNode(db, id);
+function getNodeOrThrow(db, boardId, id) {
+  const node = getNode(db, boardId, id);
   if (!node) throw new HttpError(404, "not_found", `Node ${id} not found`);
   return node;
 }
 
+// ../../independance/server/src/services/poamImportService.ts
+init_import_meta_url_shim();
+var import_node_crypto3 = require("node:crypto");
+var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+var US_DATE_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+function matchSeverity(raw, notes, columnLabel, field) {
+  const trimmed = raw?.trim();
+  if (!trimmed) return void 0;
+  const match = SEVERITY_LEVELS.find(
+    (l) => l.value.toLowerCase() === trimmed.toLowerCase() || l.label.toLowerCase() === trimmed.toLowerCase()
+  );
+  if (match) return match.value;
+  notes.push({ field, message: `${columnLabel} "${trimmed}" not recognized \u2014 left blank.` });
+  return void 0;
+}
+function normalizeDateCell(raw, notes) {
+  const trimmed = raw?.trim();
+  if (!trimmed) return void 0;
+  if (ISO_DATE_RE.test(trimmed) && !Number.isNaN(Date.parse(trimmed))) return trimmed;
+  const us = trimmed.match(US_DATE_RE);
+  if (us) {
+    const iso = `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+    if (!Number.isNaN(Date.parse(iso))) return iso;
+  }
+  notes.push({ field: "nextMilestoneDate", message: `Next Milestone Date "${trimmed}" could not be parsed \u2014 left blank.` });
+  return void 0;
+}
+function importRow(db, boardId, row, rowNumber, poamStatuses, dryRun) {
+  const notes = [];
+  const title = row.title?.trim() ?? "";
+  if (!title) {
+    return { row: rowNumber, outcome: "skipped", notes: [{ field: "title", message: "No title \u2014 row skipped." }] };
+  }
+  const description = row.description?.trim() || void 0;
+  let status;
+  const rawStatus = row.status?.trim();
+  if (rawStatus) {
+    const match = poamStatuses.find(
+      (s) => s.value.toLowerCase() === rawStatus.toLowerCase() || s.label.toLowerCase() === rawStatus.toLowerCase()
+    );
+    if (match) status = match.value;
+    else notes.push({ field: "status", message: `Status "${rawStatus}" not recognized \u2014 used the default status instead.` });
+  }
+  const resolvedStatus = resolveStatusForType(db, boardId, "poam", status);
+  const metadata = {};
+  if (row.control?.trim()) metadata.control = row.control.trim();
+  if (row.poc?.trim()) metadata.poc = row.poc.trim();
+  const severity = matchSeverity(row.severity, notes, "Inherent Risk", "severity");
+  if (severity) metadata.severity = severity;
+  const residualRisk = matchSeverity(row.residualRisk, notes, "Residual Risk", "residualRisk");
+  if (residualRisk) metadata.residualRisk = residualRisk;
+  const nextMilestoneDate = normalizeDateCell(row.nextMilestoneDate, notes);
+  if (nextMilestoneDate) metadata.nextMilestoneDate = nextMilestoneDate;
+  if (dryRun) return { row: rowNumber, outcome: "created", title, notes };
+  try {
+    const node = insertNode(db, boardId, {
+      id: (0, import_node_crypto3.randomUUID)(),
+      type: "poam",
+      title,
+      description,
+      status: resolvedStatus,
+      metadata,
+      // Client re-lays-out the whole map (arrangeGraph) once after the
+      // batch lands — no point computing a real position per row here.
+      position: { x: 0, y: 0 }
+    });
+    return { row: rowNumber, outcome: "created", title, nodeId: node.id, node, notes };
+  } catch (err) {
+    return {
+      row: rowNumber,
+      outcome: "skipped",
+      title,
+      notes: [{ field: "title", message: `Could not be created: ${err instanceof Error ? err.message : "unknown error"}` }]
+    };
+  }
+}
+function importPoams(db, boardId, rows, options) {
+  if (!getNodeType(db, boardId, "poam")) {
+    throw new HttpError(404, "not_found", 'Unknown node type "poam"');
+  }
+  const poamStatuses = listStatuses(db, boardId, "poam");
+  if (!options.dryRun) db.exec("BEGIN");
+  const rowResults = [];
+  try {
+    rows.forEach((row, i) => rowResults.push(importRow(db, boardId, row, i + 1, poamStatuses, options.dryRun)));
+    if (!options.dryRun) db.exec("COMMIT");
+  } catch (err) {
+    if (!options.dryRun) db.exec("ROLLBACK");
+    throw err;
+  }
+  const createdCount = rowResults.filter((r) => r.outcome === "created").length;
+  return {
+    dryRun: options.dryRun,
+    createdCount,
+    skippedCount: rowResults.length - createdCount,
+    rows: rowResults
+  };
+}
+
 // ../../independance/server/src/routes/nodes.ts
 function nodesRouter(db) {
-  const router = (0, import_express2.Router)();
-  router.get("/", (_req, res) => {
-    res.json(listNodes2(db));
+  const router = (0, import_express3.Router)();
+  router.get("/", (req, res) => {
+    res.json(listNodes2(db, req.boardId));
   });
   router.get("/:id", (req, res) => {
-    res.json(getNodeOrThrow(db, req.params.id));
+    res.json(getNodeOrThrow(db, req.boardId, req.params.id));
   });
   router.post("/", validateBody(createNodeSchema), (req, res) => {
-    const node = createNode(db, req.body);
+    const node = createNode(db, req.boardId, req.body);
     res.status(201).json(node);
   });
+  router.post("/import-poams", validateBody(bulkImportPoamsSchema), (req, res) => {
+    const result = importPoams(db, req.boardId, req.body.rows, { dryRun: req.body.dryRun ?? false });
+    res.status(200).json(result);
+  });
   router.patch("/:id", validateBody(updateNodeSchema), (req, res) => {
-    const node = updateNode2(db, req.params.id, req.body);
+    const node = updateNode2(db, req.boardId, req.params.id, req.body);
     res.json(node);
   });
   router.patch("/:id/position", validateBody(updateNodePositionSchema), (req, res) => {
-    const node = updateNodePosition2(db, req.params.id, req.body);
+    const node = updateNodePosition2(db, req.boardId, req.params.id, req.body);
     res.json(node);
   });
   router.delete("/:id", (req, res) => {
-    deleteNode2(db, req.params.id);
+    deleteNode2(db, req.boardId, req.params.id);
     res.status(204).send();
   });
   return router;
@@ -27699,7 +28034,7 @@ function nodesRouter(db) {
 
 // ../../independance/server/src/routes/edges.ts
 init_import_meta_url_shim();
-var import_express3 = __toESM(require_express2(), 1);
+var import_express4 = __toESM(require_express2(), 1);
 
 // ../../independance/server/src/services/edgeService.ts
 init_import_meta_url_shim();
@@ -27717,55 +28052,68 @@ function rowToEdge(row) {
     updatedAt: row.updated_at
   };
 }
-function listEdges(db) {
-  const rows = db.prepare("SELECT * FROM edges ORDER BY created_at, id").all();
+function listEdges(db, boardId) {
+  const rows = db.prepare("SELECT * FROM edges WHERE board_id = ? ORDER BY created_at, id").all(boardId);
   return rows.map(rowToEdge);
 }
-function getEdge(db, id) {
-  const row = db.prepare("SELECT * FROM edges WHERE id = ?").get(id);
+function getEdge(db, boardId, id) {
+  const row = db.prepare("SELECT * FROM edges WHERE board_id = ? AND id = ?").get(boardId, id);
   return row ? rowToEdge(row) : void 0;
 }
-function getEdgesBetween(db, aId, bId) {
-  const rows = db.prepare("SELECT * FROM edges WHERE (source_id = @a AND target_id = @b) OR (source_id = @b AND target_id = @a)").all({ a: aId, b: bId });
+function getEdgesBetween(db, boardId, aId, bId) {
+  const rows = db.prepare(
+    "SELECT * FROM edges WHERE board_id = @boardId AND ((source_id = @a AND target_id = @b) OR (source_id = @b AND target_id = @a))"
+  ).all({ boardId, a: aId, b: bId });
   return rows.map(rowToEdge);
 }
-function insertEdge(db, input) {
-  db.prepare(
-    `INSERT INTO edges (id, source_id, target_id, relationship_type, label)
-     VALUES (@id, @sourceId, @targetId, @relationshipType, @label)`
-  ).run({
+function insertEdge(db, boardId, input) {
+  const columns = ["board_id", "id", "source_id", "target_id", "relationship_type", "label"];
+  const params = {
+    board_id: boardId,
     id: input.id,
-    sourceId: input.sourceId,
-    targetId: input.targetId,
-    relationshipType: input.relationshipType,
+    source_id: input.sourceId,
+    target_id: input.targetId,
+    relationship_type: input.relationshipType,
     label: input.label ?? null
-  });
-  return getEdge(db, input.id);
+  };
+  if (input.createdAt !== void 0) {
+    columns.push("created_at");
+    params.created_at = input.createdAt;
+  }
+  if (input.updatedAt !== void 0) {
+    columns.push("updated_at");
+    params.updated_at = input.updatedAt;
+  }
+  db.prepare(
+    `INSERT INTO edges (${columns.join(", ")}) VALUES (${columns.map((c) => "@" + c).join(", ")})`
+  ).run(params);
+  return getEdge(db, boardId, input.id);
 }
-function updateEdge(db, id, input) {
-  const existing = getEdge(db, id);
+function updateEdge(db, boardId, id, input) {
+  const existing = getEdge(db, boardId, id);
   if (!existing) return void 0;
   db.prepare(
     `UPDATE edges SET
        relationship_type = @relationshipType,
        label = @label,
        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-     WHERE id = @id`
+     WHERE board_id = @boardId AND id = @id`
   ).run({
+    boardId,
     id,
     relationshipType: input.relationshipType ?? existing.relationshipType,
     label: input.label ?? existing.label ?? null
   });
-  return getEdge(db, id);
+  return getEdge(db, boardId, id);
 }
-function deleteEdge(db, id) {
-  const result = db.prepare("DELETE FROM edges WHERE id = ?").run(id);
+function deleteEdge(db, boardId, id) {
+  const result = db.prepare("DELETE FROM edges WHERE board_id = ? AND id = ?").run(boardId, id);
   return result.changes > 0;
 }
 
 // ../../independance/server/src/services/edgeService.ts
-function listEdges2(db) {
-  return listEdges(db);
+function listEdges2(db, boardId) {
+  return listEdges(db, boardId);
 }
 function blockingPair(edge) {
   if (edge.relationshipType === "blocks") return { blockerId: edge.sourceId, blockedId: edge.targetId };
@@ -27774,10 +28122,10 @@ function blockingPair(edge) {
 }
 var SQLITE_CONSTRAINT_UNIQUE = 2067;
 var SYMMETRIC_RELATIONSHIP_TYPES = ["relates_to"];
-function wouldCreateCycle(db, blockerId, blockedId, excludeEdgeId) {
+function wouldCreateCycle(db, boardId, blockerId, blockedId, excludeEdgeId) {
   if (blockerId === blockedId) return true;
   const adjacency = /* @__PURE__ */ new Map();
-  for (const edge of listEdges(db)) {
+  for (const edge of listEdges(db, boardId)) {
     if (edge.id === excludeEdgeId) continue;
     const pair = blockingPair(edge);
     if (!pair) continue;
@@ -27796,32 +28144,32 @@ function wouldCreateCycle(db, blockerId, blockedId, excludeEdgeId) {
   }
   return false;
 }
-function createEdge(db, input) {
-  getNodeOrThrow(db, input.sourceId);
-  getNodeOrThrow(db, input.targetId);
+function createEdge(db, boardId, input) {
+  getNodeOrThrow(db, boardId, input.sourceId);
+  getNodeOrThrow(db, boardId, input.targetId);
   if (input.sourceId === input.targetId) {
     throw new HttpError(409, "self_loop", "An item can't be linked to itself.");
   }
   const newPair = blockingPair(input);
   if (newPair) {
-    for (const edge of getEdgesBetween(db, input.sourceId, input.targetId)) {
+    for (const edge of getEdgesBetween(db, boardId, input.sourceId, input.targetId)) {
       const existingPair = blockingPair(edge);
       if (existingPair && existingPair.blockerId === newPair.blockedId && existingPair.blockedId === newPair.blockerId) {
-        deleteEdge(db, edge.id);
+        deleteEdge(db, boardId, edge.id);
       }
     }
-    if (wouldCreateCycle(db, newPair.blockerId, newPair.blockedId)) {
+    if (wouldCreateCycle(db, boardId, newPair.blockerId, newPair.blockedId)) {
       throw new HttpError(409, "circular_dependency", "This would create a circular dependency chain.");
     }
   } else if (SYMMETRIC_RELATIONSHIP_TYPES.includes(input.relationshipType)) {
-    for (const edge of getEdgesBetween(db, input.sourceId, input.targetId)) {
+    for (const edge of getEdgesBetween(db, boardId, input.sourceId, input.targetId)) {
       if (edge.relationshipType === input.relationshipType && edge.sourceId === input.targetId && edge.targetId === input.sourceId) {
-        deleteEdge(db, edge.id);
+        deleteEdge(db, boardId, edge.id);
       }
     }
   }
   try {
-    return insertEdge(db, input);
+    return insertEdge(db, boardId, input);
   } catch (err) {
     if (err && typeof err === "object" && "errcode" in err && err.errcode === SQLITE_CONSTRAINT_UNIQUE) {
       throw new HttpError(409, "duplicate_edge", "These two items are already linked this way.");
@@ -27829,40 +28177,40 @@ function createEdge(db, input) {
     throw err;
   }
 }
-function updateEdge2(db, id, input) {
-  const existing = getEdge(db, id);
+function updateEdge2(db, boardId, id, input) {
+  const existing = getEdge(db, boardId, id);
   if (!existing) throw new HttpError(404, "not_found", `Edge ${id} not found`);
   if (input.relationshipType) {
     const newPair = blockingPair({ ...existing, relationshipType: input.relationshipType });
-    if (newPair && wouldCreateCycle(db, newPair.blockerId, newPair.blockedId, id)) {
+    if (newPair && wouldCreateCycle(db, boardId, newPair.blockerId, newPair.blockedId, id)) {
       throw new HttpError(409, "circular_dependency", "This would create a circular dependency chain.");
     }
   }
-  const edge = updateEdge(db, id, input);
+  const edge = updateEdge(db, boardId, id, input);
   if (!edge) throw new HttpError(404, "not_found", `Edge ${id} not found`);
   return edge;
 }
-function deleteEdge2(db, id) {
-  const deleted = deleteEdge(db, id);
+function deleteEdge2(db, boardId, id) {
+  const deleted = deleteEdge(db, boardId, id);
   if (!deleted) throw new HttpError(404, "not_found", `Edge ${id} not found`);
 }
 
 // ../../independance/server/src/routes/edges.ts
 function edgesRouter(db) {
-  const router = (0, import_express3.Router)();
-  router.get("/", (_req, res) => {
-    res.json(listEdges2(db));
+  const router = (0, import_express4.Router)();
+  router.get("/", (req, res) => {
+    res.json(listEdges2(db, req.boardId));
   });
   router.post("/", validateBody(createEdgeSchema), (req, res) => {
-    const edge = createEdge(db, req.body);
+    const edge = createEdge(db, req.boardId, req.body);
     res.status(201).json(edge);
   });
   router.patch("/:id", validateBody(updateEdgeSchema), (req, res) => {
-    const edge = updateEdge2(db, req.params.id, req.body);
+    const edge = updateEdge2(db, req.boardId, req.params.id, req.body);
     res.json(edge);
   });
   router.delete("/:id", (req, res) => {
-    deleteEdge2(db, req.params.id);
+    deleteEdge2(db, req.boardId, req.params.id);
     res.status(204).send();
   });
   return router;
@@ -27870,13 +28218,13 @@ function edgesRouter(db) {
 
 // ../../independance/server/src/routes/graph.ts
 init_import_meta_url_shim();
-var import_express4 = __toESM(require_express2(), 1);
+var import_express5 = __toESM(require_express2(), 1);
 function graphRouter(db) {
-  const router = (0, import_express4.Router)();
-  router.get("/", (_req, res) => {
+  const router = (0, import_express5.Router)();
+  router.get("/", (req, res) => {
     const payload = {
-      nodes: listNodes2(db),
-      edges: listEdges2(db)
+      nodes: listNodes2(db, req.boardId),
+      edges: listEdges2(db, req.boardId)
     };
     res.json(payload);
   });
@@ -27885,27 +28233,27 @@ function graphRouter(db) {
 
 // ../../independance/server/src/routes/nodeTypes.ts
 init_import_meta_url_shim();
-var import_express5 = __toESM(require_express2(), 1);
+var import_express6 = __toESM(require_express2(), 1);
 
 // ../../independance/server/src/services/nodeTypeService.ts
 init_import_meta_url_shim();
-var import_node_crypto2 = require("node:crypto");
+var import_node_crypto4 = require("node:crypto");
 var SQLITE_CONSTRAINT_FOREIGNKEY = 787;
-function listNodeTypes2(db) {
-  return listNodeTypes(db);
+function listNodeTypes2(db, boardId) {
+  return listNodeTypes(db, boardId);
 }
-function getNodeTypeOrThrow(db, id) {
-  const type = getNodeType(db, id);
+function getNodeTypeOrThrow(db, boardId, id) {
+  const type = getNodeType(db, boardId, id);
   if (!type) throw new HttpError(404, "not_found", `Node type "${id}" not found`);
   return type;
 }
-function createNodeType(db, input) {
-  if (getNodeType(db, input.id)) {
+function createNodeType(db, boardId, input) {
+  if (getNodeType(db, boardId, input.id)) {
     throw new HttpError(409, "type_exists", `A type with id "${input.id}" already exists.`);
   }
-  const type = insertNodeType(db, input);
-  insertStatus(db, {
-    id: (0, import_node_crypto2.randomUUID)(),
+  const type = insertNodeType(db, boardId, input);
+  insertStatus(db, boardId, {
+    id: (0, import_node_crypto4.randomUUID)(),
     typeId: type.id,
     value: "not_started",
     label: "Not Started",
@@ -27913,15 +28261,15 @@ function createNodeType(db, input) {
   });
   return type;
 }
-function updateNodeType2(db, id, input) {
-  const type = updateNodeType(db, id, input);
+function updateNodeType2(db, boardId, id, input) {
+  const type = updateNodeType(db, boardId, id, input);
   if (!type) throw new HttpError(404, "not_found", `Node type "${id}" not found`);
   return type;
 }
-function deleteNodeType2(db, id) {
-  getNodeTypeOrThrow(db, id);
+function deleteNodeType2(db, boardId, id) {
+  getNodeTypeOrThrow(db, boardId, id);
   try {
-    deleteNodeType(db, id);
+    deleteNodeType(db, boardId, id);
   } catch (err) {
     if (err && typeof err === "object" && "errcode" in err && err.errcode === SQLITE_CONSTRAINT_FOREIGNKEY) {
       throw new HttpError(
@@ -27936,20 +28284,20 @@ function deleteNodeType2(db, id) {
 
 // ../../independance/server/src/routes/nodeTypes.ts
 function nodeTypesRouter(db) {
-  const router = (0, import_express5.Router)();
-  router.get("/", (_req, res) => {
-    res.json(listNodeTypes2(db));
+  const router = (0, import_express6.Router)();
+  router.get("/", (req, res) => {
+    res.json(listNodeTypes2(db, req.boardId));
   });
   router.post("/", validateBody(createNodeTypeSchema), (req, res) => {
-    const type = createNodeType(db, req.body);
+    const type = createNodeType(db, req.boardId, req.body);
     res.status(201).json(type);
   });
   router.patch("/:id", validateBody(updateNodeTypeSchema), (req, res) => {
-    const type = updateNodeType2(db, req.params.id, req.body);
+    const type = updateNodeType2(db, req.boardId, req.params.id, req.body);
     res.json(type);
   });
   router.delete("/:id", (req, res) => {
-    deleteNodeType2(db, req.params.id);
+    deleteNodeType2(db, req.boardId, req.params.id);
     res.status(204).send();
   });
   return router;
@@ -27957,23 +28305,23 @@ function nodeTypesRouter(db) {
 
 // ../../independance/server/src/routes/statuses.ts
 init_import_meta_url_shim();
-var import_express6 = __toESM(require_express2(), 1);
+var import_express7 = __toESM(require_express2(), 1);
 function statusesRouter(db) {
-  const router = (0, import_express6.Router)();
+  const router = (0, import_express7.Router)();
   router.get("/", (req, res) => {
     const typeId = typeof req.query.typeId === "string" ? req.query.typeId : void 0;
-    res.json(listStatuses2(db, typeId));
+    res.json(listStatuses2(db, req.boardId, typeId));
   });
   router.post("/", validateBody(createStatusSchema), (req, res) => {
-    const status = createStatus(db, req.body);
+    const status = createStatus(db, req.boardId, req.body);
     res.status(201).json(status);
   });
   router.patch("/:id", validateBody(updateStatusSchema), (req, res) => {
-    const status = updateStatus2(db, req.params.id, req.body);
+    const status = updateStatus2(db, req.boardId, req.params.id, req.body);
     res.json(status);
   });
   router.delete("/:id", (req, res) => {
-    deleteStatus2(db, req.params.id);
+    deleteStatus2(db, req.boardId, req.params.id);
     res.status(204).send();
   });
   return router;
@@ -27981,24 +28329,34 @@ function statusesRouter(db) {
 
 // ../../independance/server/src/routes/appSettings.ts
 init_import_meta_url_shim();
-var import_express7 = __toESM(require_express2(), 1);
+var import_express8 = __toESM(require_express2(), 1);
 
 // ../../independance/server/src/services/appSettingsService.ts
 init_import_meta_url_shim();
 
 // ../../independance/server/src/db/queries/appSettings.ts
 init_import_meta_url_shim();
-function getAllSettings(db) {
-  const rows = db.prepare("SELECT * FROM app_settings").all();
+function getBoardSettings(db, boardId) {
+  const rows = db.prepare("SELECT key, value FROM app_settings WHERE board_id = ?").all(boardId);
   const result = {};
   for (const row of rows) {
     result[row.key] = JSON.parse(row.value);
   }
   return result;
 }
-function setSetting(db, key, value) {
+function setBoardSetting(db, boardId, key, value) {
   db.prepare(
-    `INSERT INTO app_settings (key, value) VALUES (@key, @value)
+    `INSERT INTO app_settings (board_id, key, value) VALUES (@boardId, @key, @value)
+     ON CONFLICT(board_id, key) DO UPDATE SET value = excluded.value`
+  ).run({ boardId, key, value: JSON.stringify(value) });
+}
+function getGlobalSetting(db, key) {
+  const row = db.prepare("SELECT value FROM global_settings WHERE key = ?").get(key);
+  return row ? JSON.parse(row.value) : void 0;
+}
+function setGlobalSetting(db, key, value) {
+  db.prepare(
+    `INSERT INTO global_settings (key, value) VALUES (@key, @value)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`
   ).run({ key, value: JSON.stringify(value) });
 }
@@ -28010,51 +28368,169 @@ var DEFAULTS = {
 function isTileFieldsRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function getSettings(db) {
-  const stored = getAllSettings(db);
+function getSettings(db, boardId) {
+  const stored = getBoardSettings(db, boardId);
   const settings = {
     tileFields: isTileFieldsRecord(stored.tileFields) ? stored.tileFields : DEFAULTS.tileFields
   };
-  if (stored.theme === "dark" || stored.theme === "light") settings.theme = stored.theme;
+  const theme = getGlobalSetting(db, "theme");
+  if (theme === "dark" || theme === "light") settings.theme = theme;
   if (stored.placementMode === "auto" || stored.placementMode === "manual") settings.placementMode = stored.placementMode;
   return settings;
 }
-function updateSettings(db, input) {
-  if (input.tileFields !== void 0) setSetting(db, "tileFields", input.tileFields);
-  if (input.theme !== void 0) setSetting(db, "theme", input.theme);
-  if (input.placementMode !== void 0) setSetting(db, "placementMode", input.placementMode);
-  return getSettings(db);
+function updateSettings(db, boardId, input) {
+  if (input.tileFields !== void 0) setBoardSetting(db, boardId, "tileFields", input.tileFields);
+  if (input.theme !== void 0) setGlobalSetting(db, "theme", input.theme);
+  if (input.placementMode !== void 0) setBoardSetting(db, boardId, "placementMode", input.placementMode);
+  return getSettings(db, boardId);
 }
 
 // ../../independance/server/src/routes/appSettings.ts
 function appSettingsRouter(db) {
-  const router = (0, import_express7.Router)();
-  router.get("/", (_req, res) => {
-    res.json(getSettings(db));
+  const router = (0, import_express8.Router)();
+  router.get("/", (req, res) => {
+    res.json(getSettings(db, req.boardId));
   });
   router.patch("/", validateBody(updateAppSettingsSchema), (req, res) => {
-    res.json(updateSettings(db, req.body));
+    res.json(updateSettings(db, req.boardId, req.body));
   });
   return router;
+}
+
+// ../../independance/server/src/routes/backup.ts
+init_import_meta_url_shim();
+var import_express9 = __toESM(require_express2(), 1);
+
+// ../../independance/server/src/services/backupService.ts
+init_import_meta_url_shim();
+function exportBackup(db, boardId) {
+  const board = getBoard(db, boardId);
+  if (!board) throw new HttpError(404, "not_found", `Board ${boardId} not found`);
+  return {
+    version: 2,
+    exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    boardId: board.id,
+    boardName: board.name,
+    nodeTypes: listNodeTypes(db, boardId),
+    statuses: listStatuses(db, boardId),
+    nodes: listNodes(db, boardId),
+    edges: listEdges(db, boardId),
+    appSettings: getSettings(db, boardId)
+  };
+}
+function restoreBackup(db, boardId, backup) {
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM nodes WHERE board_id = ?").run(boardId);
+    db.prepare("DELETE FROM node_types WHERE board_id = ?").run(boardId);
+    db.prepare("DELETE FROM app_settings WHERE board_id = ?").run(boardId);
+    for (const type of backup.nodeTypes) {
+      db.prepare(
+        `INSERT INTO node_types (board_id, id, label, color, sort_order) VALUES (@boardId, @id, @label, @color, @sortOrder)`
+      ).run({ boardId, id: type.id, label: type.label, color: type.color, sortOrder: type.sortOrder });
+    }
+    for (const status of backup.statuses) {
+      db.prepare(
+        `INSERT INTO node_statuses (board_id, id, type_id, value, label, sort_order, is_default)
+         VALUES (@boardId, @id, @typeId, @value, @label, @sortOrder, @isDefault)`
+      ).run({
+        boardId,
+        id: status.id,
+        typeId: status.typeId,
+        value: status.value,
+        label: status.label,
+        sortOrder: status.sortOrder,
+        isDefault: status.isDefault ? 1 : 0
+      });
+    }
+    for (const node of backup.nodes) {
+      insertNode(db, boardId, {
+        id: node.id,
+        type: node.type,
+        title: node.title,
+        description: node.description,
+        status: node.status,
+        metadata: node.metadata,
+        position: node.position,
+        createdAt: node.createdAt,
+        updatedAt: node.updatedAt
+      });
+    }
+    for (const edge of backup.edges) {
+      insertEdge(db, boardId, {
+        id: edge.id,
+        sourceId: edge.sourceId,
+        targetId: edge.targetId,
+        relationshipType: edge.relationshipType,
+        label: edge.label,
+        createdAt: edge.createdAt,
+        updatedAt: edge.updatedAt
+      });
+    }
+    if (backup.appSettings.tileFields !== void 0)
+      setBoardSetting(db, boardId, "tileFields", backup.appSettings.tileFields);
+    if (backup.appSettings.theme !== void 0) setGlobalSetting(db, "theme", backup.appSettings.theme);
+    if (backup.appSettings.placementMode !== void 0)
+      setBoardSetting(db, boardId, "placementMode", backup.appSettings.placementMode);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return {
+    nodeTypeCount: backup.nodeTypes.length,
+    statusCount: backup.statuses.length,
+    nodeCount: backup.nodes.length,
+    edgeCount: backup.edges.length
+  };
+}
+
+// ../../independance/server/src/routes/backup.ts
+function backupRouter(db) {
+  const router = (0, import_express9.Router)();
+  router.get("/", (req, res) => {
+    res.json(exportBackup(db, req.boardId));
+  });
+  router.post("/restore", validateBody(fullBackupSchema), (req, res) => {
+    const result = restoreBackup(db, req.boardId, req.body);
+    res.status(200).json(result);
+  });
+  return router;
+}
+
+// ../../independance/server/src/middleware/board.ts
+init_import_meta_url_shim();
+function requireBoard(db) {
+  return (req, _res, next) => {
+    const boardId = req.header("X-Board-Id") || "default";
+    if (!getBoard(db, boardId)) {
+      throw new HttpError(404, "not_found", `Board "${boardId}" not found`);
+    }
+    req.boardId = boardId;
+    next();
+  };
 }
 
 // ../../independance/server/src/app.ts
 var __dirname2 = import_node_path2.default.dirname((0, import_node_url3.fileURLToPath)(import_meta_url));
 function createApp({ dbPath: dbPath2 }) {
   const db = createDb(dbPath2);
-  const app2 = (0, import_express8.default)();
+  const app2 = (0, import_express10.default)();
   app2.use((0, import_cors.default)());
-  app2.use(import_express8.default.json());
+  app2.use(import_express10.default.json());
   app2.use("/api", healthRouter);
+  app2.use("/api/boards", boardsRouter(db));
+  app2.use("/api", requireBoard(db));
   app2.use("/api/nodes", nodesRouter(db));
   app2.use("/api/edges", edgesRouter(db));
   app2.use("/api/graph", graphRouter(db));
   app2.use("/api/node-types", nodeTypesRouter(db));
   app2.use("/api/statuses", statusesRouter(db));
   app2.use("/api/settings", appSettingsRouter(db));
+  app2.use("/api/backup", backupRouter(db));
   const clientDistDir = process.env.CLIENT_DIST_DIR ? import_node_path2.default.resolve(process.env.CLIENT_DIST_DIR) : import_node_path2.default.join(__dirname2, "..", "..", "client", "dist");
   if ((0, import_node_fs2.existsSync)(clientDistDir)) {
-    app2.use(import_express8.default.static(clientDistDir));
+    app2.use(import_express10.default.static(clientDistDir));
   }
   app2.use(errorHandler);
   return { app: app2, db };
